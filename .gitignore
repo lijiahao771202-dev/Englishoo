@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Test and report artifacts
+playwright-report/
+test-results/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,12 +26,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# Test outputs & reports
-playwright-report/
-test-results/
-coverage/
-
-# Environment files
-.env
-.env.*
