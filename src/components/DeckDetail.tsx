@@ -387,21 +387,8 @@ export function DeckDetail({
             </div>
             
             <div className="relative z-10 space-y-3">
-                <div className="flex items-center justify-between text-xs text-white/50">
-                    <span>复习数量</span>
-                    <span>{reviewLimit} 个</span>
-                </div>
-                <input 
-                    type="range" 
-                    min="5" 
-                    max={stats.due > 0 ? stats.due : 50} 
-                    step="5"
-                    value={reviewLimit}
-                    onChange={(e) => setReviewLimit(Number(e.target.value))}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full"
-                />
                 <button 
-                    onClick={() => onStartSession({ newLimit: 0, reviewLimit })}
+                    onClick={() => onStartSession({ newLimit: 0, reviewLimit: stats.due })}
                     disabled={stats.due === 0}
                     className="w-full py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >

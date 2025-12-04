@@ -4,6 +4,7 @@ import type { WordCard } from '@/types';
 import { cn } from '@/lib/utils';
 import { Sparkles, BookOpen, BrainCircuit, Eye, Edit3, Save, RefreshCw, Volume2, Heart, CheckCircle, Keyboard, Link2, Sprout, RotateCcw, Network } from 'lucide-react';
 import { FormattedText } from './FormattedText';
+import { Rating } from 'ts-fsrs';
 import { speak } from '@/lib/tts';
 import { playClickSound, playSuccessSound } from '@/lib/sounds';
 
@@ -26,6 +27,7 @@ interface FlashcardProps {
    * @description 是否已揭示答案 (受控模式)
    */
   flipped?: boolean;
+  initialGhostMode?: boolean; // [NEW] Initial Ghost Mode state
   /**
    * @description 是否始终显示背面内容（用于新词学习模式，即使未揭示也能看到释义，但保留幽灵拼写功能）
    */
@@ -59,7 +61,8 @@ interface FlashcardProps {
    * @description 动作回调：悬浮语义邻居
    */
   onSemanticNeighborHover?: (word: string | null) => void;
-  onPositionChange?: (point: { x: number; y: number }) => void;
+  onPositionChange?: (data: { point: { x: number; y: number }; transform: { x: number; y: number } }) => void;
+  initialPosition?: { x: number; y: number };
 }
 
 /**
@@ -87,13 +90,15 @@ export function Flashcard({
   isEnriching, 
   flipped,
   alwaysShowContent = false,
+  initialGhostMode = true, // Default to true (existing behavior)
   semanticNeighbors = [],
   onKnow,
   onForgot,
   onRate,
   onSemanticNeighborClick,
   onSemanticNeighborHover,
-  onPositionChange
+  onPositionChange,
+  initialPosition
 }: FlashcardProps) {
   const [internalRevealed, setInternalRevealed] = useState(false);
   const [resizeInProgress, setResizeInProgress] = useState(false);
@@ -127,7 +132,7 @@ export function Flashcard({
   ]);
 
   // Ghost Typing State
-  const [isGhostMode, setIsGhostMode] = useState(true);
+  const [isGhostMode, setIsGhostMode] = useState(initialGhostMode);
   const [typedInput, setTypedInput] = useState('');
   const [isShaking, setIsShaking] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +149,11 @@ export function Flashcard({
       inputRef.current.focus();
     }
   }, [card.id, card.notes, card.meaning]);
+
+  // Auto-sync isGhostMode when initialGhostMode changes (e.g. switching between New/Review cards)
+  useEffect(() => {
+    setIsGhostMode(initialGhostMode);
+  }, [initialGhostMode, card.id]);
 
   // Determine effective state: controlled (prop) vs uncontrolled (state)
   const isRevealed = flipped !== undefined ? flipped : internalRevealed;
@@ -191,9 +201,16 @@ export function Flashcard({
         playSuccessSound(); 
         speakWord(); 
         
-        // Auto-reveal and blur to enable shortcuts
+        // Auto-reveal to show meaning
         if (onFlip) onFlip(true);
         setInternalRevealed(true);
+        
+        // [User Request]: Disable auto-submit. 
+        // Allow user to keep typing (which will reset due to logic above) or manually rate.
+        // We blur input to allow shortcuts (Space/1/2/3/4) to work if they want to proceed.
+        // But if they want to re-type, they can click or press Enter.
+        // Actually, keeping focus might be better for "repetitive practice" if they hit Enter to reset.
+        // Let's keep focus but NOT call onRate/onKnow.
       }
     } else {
       // Error: Shake animation
@@ -201,6 +218,49 @@ export function Flashcard({
       setTimeout(() => setIsShaking(false), 500);
     }
   };
+
+    // Global Keyboard Shortcuts (Space to Pass)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in a real text field, UNLESS it's our ghost input and we want to pass
+      // [Fix]: Also ignore ghost-input for global navigation shortcuts to prevent accidental jumps
+      const target = e.target as HTMLElement;
+      const isGhostInput = target.tagName === 'INPUT' && target.closest('.group\\/word'); // Check if it's the ghost input container
+
+      // If in a textarea (notes) or other input that is NOT ghost input, return
+      if (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && !isGhostInput)) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        // If typing in ghost input, we usually want to type space. 
+        // But if the word is single-word (no spaces), we can use Space to pass/reveal?
+        // User said "cannot space pass card".
+        // Let's allow Space to pass IF:
+        // 1. Card is already revealed (so typing is done/irrelevant for checking)
+        // 2. OR if card is not revealed but we are in ghost mode and word has no spaces? (Risky)
+        
+        // Actually, the user complaint "cannot space pass" likely refers to when they are STUCK or DONE typing.
+        // If they are typing, Space puts a space.
+        // If they want to pass, they might try to hit Space.
+        
+        // Let's just allow Space to trigger "Know/Rate" if revealed.
+        if (isRevealed || alwaysShowContent) {
+           // If focused in input, Space will type a space. We need to preventDefault.
+           e.preventDefault();
+           if (onKnow) {
+             onKnow();
+           } else if (onRate) {
+             // Default to Good (3) for spacebar pass
+             onRate(Rating.Good);
+           }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isRevealed, alwaysShowContent, onKnow, onRate]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Allow 'Enter' to clear input for repeated practice
@@ -210,11 +270,32 @@ export function Flashcard({
     
     // Handle Space key conflict
     if (e.code === 'Space') {
+        // If the card is already revealed/done, Space should be handled by global handler to PASS
+        if (isRevealed) {
+            // Let global handler take it (it prevents default)
+            // But we need to ensure this handler doesn't stop propagation?
+            // Actually, React synthetic events bubble. Global window listener captures/bubbles.
+            // We just need to NOT prevent default here if we want global to handle it?
+            // No, if we want global to handle it, we should probably prevent default here to stop input?
+            // The global handler is on window, so it runs too.
+            // Let's just handle it here for safety if focused.
+             e.preventDefault();
+             if (onKnow) onKnow();
+             else if (onRate) onRate(Rating.Good);
+             return;
+        }
+
         const nextCharIndex = typedInput.length;
         const expectedChar = card.word[nextCharIndex];
         
+        // If Space is NOT the next expected character, treat it as a Reveal trigger (or Pass if we want)
+        // User said "space pass card". Usually pass means "I know it" or "Next".
+        // If not revealed, Space usually reveals.
         if (expectedChar !== ' ') {
             e.preventDefault(); 
+            if (!isRevealed) {
+                handleReveal(true); // Force reveal
+            }
             return;
         }
     }
@@ -243,8 +324,8 @@ export function Flashcard({
     }
   }, [noteContent, isRevealed]);
 
-  const handleReveal = () => {
-    if (isGhostMode) {
+  const handleReveal = (force: boolean = false) => {
+    if (isGhostMode && !force) {
       inputRef.current?.focus();
       return;
     }
@@ -381,11 +462,27 @@ export function Flashcard({
       ref={cardRef}
       drag={!resizeInProgress}
       dragMomentum={false}
-      onDragEnd={(_, info) => onPositionChange?.(info.point)}
+      initial={{ 
+        x: initialPosition?.x || 0, 
+        y: initialPosition?.y || 0 
+      }}
+      onDragEnd={(_, info) => {
+        const currentX = (initialPosition?.x || 0) + info.offset.x;
+        const currentY = (initialPosition?.y || 0) + info.offset.y;
+        onPositionChange?.({ 
+          point: info.point, 
+          transform: { x: currentX, y: currentY } 
+        });
+      }}
       whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
       className="relative cursor-grab group perspective-1000" 
-      style={{ width: size.width, height: size.height }}
-      onClick={handleReveal}
+      style={{ 
+        width: size.width, 
+        height: size.height,
+        x: initialPosition?.x,
+        y: initialPosition?.y
+      }}
+      onClick={() => handleReveal(false)}
     >
       <div className={cn(
         "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500",
@@ -489,7 +586,7 @@ export function Flashcard({
             "flex flex-col items-center justify-center transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]",
             (isRevealed || alwaysShowContent) ? "min-h-[160px] pt-12 pb-8" : "h-full"
         )}>
-          <div className="relative group/word mb-4 max-w-full px-4">
+          <div className="relative group/word mb-4 max-w-full px-8 py-4 transition-all duration-500">
             <motion.div 
               animate={isShaking ? { x: [-5, 5, -5, 5, 0] } : {}}
               transition={{ duration: 0.4 }}
@@ -543,20 +640,21 @@ export function Flashcard({
                             ? "text-white" 
                             : currentIsTyped 
                               ? "text-transparent bg-clip-text bg-gradient-to-b from-blue-300 to-blue-500 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]" 
-                              : (isRevealed || alwaysShowContent) && typedInput.length === 0
-                                ? "text-white/40 blur-[0.5px]" 
-                                : "text-white/10 blur-[1px]" 
+                              : isRevealed
+                                ? "text-white"
+                                : (alwaysShowContent)
+                                  ? "text-white/40 blur-[0.5px]" 
+                                  : "text-white/10 blur-[1px]" 
                         )}
                       >
                         {char}
                         {isGhostMode && currentIsCurrent && (
                           <motion.span
-                            layoutId="cursor"
                             className="absolute -bottom-2 left-0 w-full h-[3px] bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: [0.5, 1, 0.5] }}
+                            initial={{ opacity: 0, scale: 0.5 }}
+                            animate={{ opacity: [0.5, 1, 0.5], scale: 1 }}
                             transition={{ 
-                              layout: { duration: 0.3, ease: "easeOut" },
+                              duration: 0.2,
                               opacity: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
                             }}
                           />
@@ -1033,27 +1131,10 @@ export function Flashcard({
               className="absolute bottom-10 left-0 right-0 flex justify-center gap-4 z-50 pointer-events-none" 
             >
                 <div className="pointer-events-auto flex gap-4">
-                  {onRate ? (
-                    // FSRS Buttons
-                    <div className="flex gap-1.5 p-2 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl">
-                        {[
-                          { label: '重来', val: 1, color: 'bg-red-500' },
-                          { label: '困难', val: 2, color: 'bg-orange-500' },
-                          { label: '良好', val: 3, color: 'bg-blue-500' },
-                          { label: '容易', val: 4, color: 'bg-green-500' }
-                        ].map(btn => (
-                          <button
-                            key={btn.val}
-                            onClick={(e) => { e.stopPropagation(); onRate(btn.val); }}
-                            className="px-4 py-2 rounded-full hover:bg-white/10 text-xs font-bold text-white/90 transition-colors flex items-center gap-2"
-                          >
-                              <span className={`w-1.5 h-1.5 rounded-full ${btn.color} shadow-[0_0_8px_currentColor]`}/>
-                              {btn.label}
-                          </button>
-                        ))}
-                    </div>
-                  ) : (onKnow || onForgot) && (
-                    // Learn Buttons
+                  {/* FSRS Buttons are now handled externally via ReviewControls */}
+                  
+                  {/* Learn Buttons */}
+                  {!onRate && (onKnow || onForgot) && (
                     <>
                       <button
                         onClick={(e) => { e.stopPropagation(); onForgot?.(); }}

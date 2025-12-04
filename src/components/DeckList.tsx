@@ -1,18 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Layers, BookOpen, Trash2, TestTube, BrainCircuit } from 'lucide-react';
+import { Plus, Layers, BookOpen, Trash2, TestTube, BrainCircuit, Mic, Sparkles, Zap } from 'lucide-react';
 import { createDeck, getAllDecks, getAllCards, deleteDeck, SYSTEM_DECK_GUIDED } from '@/lib/db';
 import type { Deck } from '@/types';
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { motion, AnimatePresence } from 'framer-motion';
-import { seedFromLocalJSON } from '@/lib/seed';
+import { seedFromLocalJSON, seedTestDeck } from '@/lib/seed';
 
 interface DeckListProps {
   onSelectDeck: (deckId: string) => void;
   onOpenKnowledgeGraph: () => void;
+  onOpenShadowing: () => void;
 }
 
-export function DeckList({ onSelectDeck }: DeckListProps) {
+export function DeckList({ onSelectDeck, onOpenShadowing }: DeckListProps) {
   const [decks, setDecks] = useState<(Deck & { cardCount: number })[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
@@ -50,14 +51,14 @@ export function DeckList({ onSelectDeck }: DeckListProps) {
 
   const handleSeedData = async () => {
     if (isSeeding) return;
-    if (!confirm('这将生成100个测试单词并计算它们的语义连接。这可能需要几分钟时间。确定要继续吗？')) return;
+    if (!confirm('这将创建一个包含20个单词的测试卡包（混合新词和复习词），并计算它们的语义连接。确定要继续吗？')) return;
     
     setIsSeeding(true);
     try {
-        await seedFromLocalJSON((current: number, total: number, word: string) => {
+        await seedTestDeck((current: number, total: number, word: string) => {
             setSeedProgress({ current, total, word });
         });
-        alert('生成完成！');
+        alert('测试卡包生成完成！');
         await loadDecks();
     } catch (error) {
         console.error("Seed failed:", error);
@@ -126,10 +127,10 @@ export function DeckList({ onSelectDeck }: DeckListProps) {
                 onClick={handleSeedData}
                 disabled={isSeeding}
                 className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors flex items-center gap-2 text-xs border border-white/10"
-                title="生成100个测试单词并构建图谱"
+                title="生成测试卡包 (20个单词)"
             >
                 <TestTube className="w-4 h-4" />
-                <span className="hidden md:inline">生成测试数据</span>
+                <span className="hidden md:inline">生成测试卡包</span>
             </button>
         </div>
         <p className="text-white/50 text-sm">
@@ -156,7 +157,9 @@ export function DeckList({ onSelectDeck }: DeckListProps) {
         </div>
       )}
 
-        {/* Grid */}
+
+
+      {/* Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 px-4">
         
 

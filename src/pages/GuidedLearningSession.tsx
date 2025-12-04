@@ -5,15 +5,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, CheckCircle, Check, X, Clock, Target, ArrowRight, Loader2 } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
-import { getAllDecks, saveCard, getSemanticConnections, saveSemanticConnections, getCardsByIds } from '@/lib/db';
+import { getAllDecks, saveCard, getSemanticConnections, saveSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache } from '@/lib/db';
 import { cn } from '@/lib/utils';
 import { speak } from '@/lib/tts';
 import { playClickSound, playSuccessSound, playFailSound, playPassSound, playSpellingSuccessSound } from '@/lib/sounds';
 import { Flashcard } from '@/components/Flashcard';
 import type { WordCard } from '@/types';
-import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, generateEdgeLabels, generateBridgingExample } from '@/lib/deepseek';
+import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, generateEdgeLabels, generateEdgeLabelsOnly, generateBridgingExample, generateRelatedWords } from '@/lib/deepseek';
 import { EmbeddingService } from '@/lib/embedding';
 import { Rating, State } from 'ts-fsrs';
+import { ReviewControls } from '@/components/ReviewControls';
+import { getReviewPreviews } from '@/lib/fsrs';
 
 /**
  * @description 引导式学习会话页面 (Guided Learning Session)
@@ -35,6 +37,7 @@ export interface GuidedLearningSessionProps {
   onRate?: (card: WordCard, rating: Rating) => Promise<void>; // FSRS Rating Handler
   sessionGroups?: Array<{ label: string; items: WordCard[] }>;
   onUpdateCard?: (card: WordCard) => Promise<void | WordCard>;
+  sessionMode?: 'new' | 'review' | 'mixed'; // [NEW] Explicit session mode
 }
 
 // 扩展 NodeObject 类型以包含自定义属性
@@ -60,7 +63,7 @@ interface SessionItem {
   nodeId: string; // Keep track of graph node ID for focus
 }
 
-export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, sessionGroups, onUpdateCard }: GuidedLearningSessionProps) {
+export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, sessionGroups, onUpdateCard, sessionMode = 'mixed' }: GuidedLearningSessionProps) {
   const [mode, setMode] = useState<'map' | 'session'>('map');
   const [levels, setLevels] = useState<CurriculumLevel[]>([]);
   const [currentLevel, setCurrentLevel] = useState<CurriculumLevel | null>(null);
@@ -79,6 +82,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
   // Learning State
   const [phase, setPhase] = useState<LearningPhase>('overview');
   const [queue, setQueue] = useState<SessionItem[]>([]);
+  const currentItem = queue[0]; // Define early to avoid TDZ in effects
   const [completedNodeIds, setCompletedNodeIds] = useState<Set<string>>(new Set());
   const [sessionStats, setSessionStats] = useState({ correct: 0, total: 0, startTime: 0 });
   
@@ -93,10 +97,127 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
   const [hoveredLink, setHoveredLink] = useState<any>(null);
   const [hoveredNode, setHoveredNode] = useState<any>(null);
   const [isHoveringCard, setIsHoveringCard] = useState(false); // [NEW] Track if hovering card to prevent graph interaction
+  const [isCardFlipped, setIsCardFlipped] = useState(false); // [NEW] Track card flip state for controls
   const [justLearnedNodeId, setJustLearnedNodeId] = useState<string | null>(null);
   // Highlighted Neighbor State (Cross-Highlighting)
   const [highlightedNeighborId, setHighlightedNeighborId] = useState<string | null>(null);
   const [isGraphGenerating, setIsGraphGenerating] = useState(false);
+  const [generatingLinks, setGeneratingLinks] = useState<Set<string>>(new Set());
+  const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | undefined>(undefined);
+  
+  // [NEW] AI Graph Cache (L1 - Memory)
+  const aiCacheRef = useRef<Map<string, any>>(new Map());
+  
+  // [NEW] Prefetch AI Content
+  const prefetchRelatedWords = useCallback(async (word: string) => {
+      if (!apiKey || !word) return;
+      
+      // 1. Check L1 Cache (Memory)
+      if (aiCacheRef.current.has(word)) return;
+      
+      // 2. Check L2 Cache (DB)
+      const cached = await getAIGraphCache(word);
+      if (cached && (Date.now() - cached.timestamp < 30 * 24 * 60 * 60 * 1000)) { // 30 days valid
+          aiCacheRef.current.set(word, cached.relatedItems);
+          return;
+      }
+      
+      // 3. Fetch from API (Queue it effectively)
+      // Note: We don't await here to avoid blocking UI, but we should limit concurrency if possible.
+      // For simplicity in this version, we just fire and forget, relying on internal logic.
+      // However, to avoid redundant calls, we mark it as 'fetching' in L1.
+      aiCacheRef.current.set(word, 'fetching');
+      
+      try {
+          const relatedItems = await generateRelatedWords(word, apiKey);
+          if (relatedItems && relatedItems.length > 0) {
+               aiCacheRef.current.set(word, relatedItems);
+               await saveAIGraphCache({ word, relatedItems, timestamp: Date.now() });
+          } else {
+               aiCacheRef.current.delete(word); // Retry later if failed
+          }
+      } catch (e) {
+          console.error(`Prefetch failed for ${word}`, e);
+          aiCacheRef.current.delete(word);
+      }
+  }, [apiKey]);
+
+  // [NEW] Monitor Queue for Prefetching
+  useEffect(() => {
+      if (!queue.length || !apiKey) return;
+      
+      // Prefetch next 4 items
+      const itemsToPrefetch = queue.slice(1, 5); // Next 4 items
+      itemsToPrefetch.forEach(item => {
+          prefetchRelatedWords(item.card.word);
+      });
+  }, [queue, apiKey, prefetchRelatedWords, currentItem]); // Trigger when queue changes or current item advances
+
+  // Reset card flip state when item changes
+  useEffect(() => {
+    setIsCardFlipped(false);
+  }, [currentItem]);
+
+
+  // [NEW] Real-time Example Generation Effect
+  useEffect(() => {
+      if (!hoveredLink || !apiKey || hoveredLink.example) return;
+
+      const sourceId = typeof hoveredLink.source === 'object' ? hoveredLink.source.id : hoveredLink.source;
+      const targetId = typeof hoveredLink.target === 'object' ? hoveredLink.target.id : hoveredLink.target;
+      const linkId = `${sourceId}-${targetId}`;
+
+      if (generatingLinks.has(linkId)) return;
+
+      // Only generate if BOTH nodes are 'topic' (learned/learning)
+      // Exclude 'context' nodes (unlearned) from example generation
+      const sourceNode = graphData?.nodes.find(n => n.id === sourceId);
+      const targetNode = graphData?.nodes.find(n => n.id === targetId);
+      
+      if (!sourceNode || !targetNode) return;
+      if (sourceNode.type !== 'topic' || targetNode.type !== 'topic') return;
+      
+      const generate = async () => {
+          setGeneratingLinks(prev => new Set(prev).add(linkId));
+          
+          try {
+              const result = await generateBridgingExample(
+                  sourceNode.label, 
+                  targetNode.label, 
+                  hoveredLink.label || 'related', 
+                  apiKey
+              );
+              
+              // Update Graph Data
+              setGraphData(prev => {
+                  if (!prev) return null;
+                  const newLinks = prev.links.map(l => {
+                      const lSourceId = typeof l.source === 'object' ? l.source.id : l.source;
+                      const lTargetId = typeof l.target === 'object' ? l.target.id : l.target;
+                      
+                      if ((lSourceId === sourceId && lTargetId === targetId) || (lSourceId === targetId && lTargetId === sourceId)) {
+                          const updated = { ...l, example: result.example, example_cn: result.exampleMeaning };
+                          if (l === hoveredLink) setHoveredLink(updated); 
+                          return updated;
+                      }
+                      return l;
+                  });
+                  return { ...prev, links: newLinks };
+              });
+          } catch (e) {
+              console.error(e);
+          } finally {
+              setGeneratingLinks(prev => {
+                  const next = new Set(prev);
+                  next.delete(linkId);
+                  return next;
+              });
+          }
+      };
+      
+      const timer = setTimeout(generate, 500); // Debounce slightly to avoid rapid hover triggers
+      return () => clearTimeout(timer);
+  }, [hoveredLink, apiKey, graphData, generatingLinks]);
 
   // Interleaved Learning State
   const [isEnriching, setIsEnriching] = useState(false);
@@ -106,8 +227,6 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
   const [inputValue, setInputValue] = useState('');
   const [testResult, setTestResult] = useState<'correct' | 'incorrect' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const currentItem = queue[0];
 
   // Helper to identify neighbors of the current active node for focus mode
   const activeNeighborIds = React.useMemo(() => {
@@ -354,11 +473,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         setMode('session');
     } else {
         // Review Mode: Queue follows input order (FSRS)
-        const newQueue: SessionItem[] = sessionCards.map(card => ({
-            card,
-            type: 'learn',
-            nodeId: card.id
-        }));
+        // [FIX] Filter out familiar cards
+        const newQueue: SessionItem[] = sessionCards
+            .filter(card => !card.isFamiliar)
+            .map(card => ({
+                card,
+                type: 'learn',
+                nodeId: card.id
+            }));
         setQueue(newQueue);
         setMode('session');
         
@@ -396,9 +518,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
       });
       
       // Filter UNLEARNED items for the queue
-      // But if we are in a "Review All" context, we might want all.
-      // Assuming "Guided Learning" = Learn New.
-      const unlearnedItems = sortedItems.filter(c => c.state === State.New);
+      // [FIX] Exclude familiar cards
+      const unlearnedItems = sortedItems.filter(c => c.state === State.New && !c.isFamiliar);
       
       const newQueue: SessionItem[] = unlearnedItems.map(card => ({
           card,
@@ -414,9 +535,32 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
   const updateGraphForGroup = async (group: { label: string; items: WordCard[] }, forceRefresh = false) => {
       setIsGraphGenerating(true);
       try {
+          // Cache Key: Unique based on sorted words in the group
+          const groupWords = group.items.map(c => c.word).sort();
+          const cacheKey = `group_graph_${groupWords.join('_')}`;
+
+          // 1. Try Load from Cache
+          if (!forceRefresh) {
+              const cached = await getGroupGraphCache(cacheKey);
+              if (cached) {
+                  console.log('Loaded graph from cache:', cacheKey);
+                  // Re-hydrate nodes with fresh card data
+                  const restoredNodes = cached.nodes.map((n: any) => {
+                      const currentCard = group.items.find(c => c.id === n.id);
+                      return {
+                          ...n,
+                          data: currentCard || n.data
+                      };
+                  });
+                  setGraphData({ nodes: restoredNodes, links: cached.links });
+                  setIsGraphGenerating(false);
+                  return;
+              }
+          }
+
           const db = EmbeddingService.getInstance();
           
-          // 1. Create Nodes
+          // 2. Create Topic Nodes
           const nodes: CustomNode[] = group.items.map(card => ({
               id: card.id,
               label: card.word,
@@ -429,34 +573,69 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
           const nodeIdMap = new Map(nodes.map(n => [n.label.toLowerCase(), n.id]));
 
-          // 2. Compute Internal Connections (Real-time)
-          // [MODIFIED] Lower threshold to 0.6 to allow more connections
-          const groupWords = group.items.map(c => c.word);
-          const allConnections = await db.computeGroupConnections(groupWords, 0.6); 
+          // 3. Fetch Context Nodes (Unlearned, Related)
+          let contextNodes: CustomNode[] = [];
+          try {
+              const decks = await getAllDecks();
+              const targetDeck = decks.find(d => d.name === deckName) || decks.find(d => d.name.includes('专八')) || decks.find(d => d.id === 'vocabulary-book');
+              
+              if (targetDeck) {
+                  const allCards = await getAllCards(targetDeck.id);
+                  const groupWordSet = new Set(groupWords.map(w => w.toLowerCase()));
+                  
+                  // Candidates: New words NOT in current group
+                  const candidates = allCards.filter(c => 
+                      c.state === State.New && !groupWordSet.has(c.word.toLowerCase())
+                  );
+                  
+                  // Find top 15 related context words
+                  const relatedWords = await db.findContextWords(groupWords, 15, candidates.map(c => c.word));
+                  
+                  relatedWords.forEach(w => {
+                      const card = candidates.find(c => c.word.toLowerCase() === w.toLowerCase());
+                      if (card) {
+                          contextNodes.push({
+                              id: card.id,
+                              label: card.word,
+                              meaning: card.meaning,
+                              type: 'context',
+                              val: 12,
+                              group: 2,
+                              data: card
+                          });
+                          nodeIdMap.set(w.toLowerCase(), card.id);
+                      }
+                  });
+              }
+          } catch (e) {
+              console.error("Failed to fetch context nodes", e);
+          }
 
-          // [MODIFIED] Simplify Graph Logic: Keep only top-4 strongest connections per node
+          const allNodes = [...nodes, ...contextNodes];
+          const allWords = allNodes.map(n => n.label);
+
+          // 4. Compute Internal Connections (Real-time)
+          const allConnections = await db.computeGroupConnections(allWords, 0.6); 
+
           const simplifiedLinks: any[] = [];
-          const linkSet = new Set<string>(); // Track unique "source-target" keys
-
-          // Helper to get sorted key
+          const linkSet = new Set<string>(); 
           const getLinkKey = (a: string, b: string) => [a, b].sort().join(':');
 
-          // For each word, pick its top 4 connections
-          groupWords.forEach(word => {
+          allWords.forEach(word => {
               const w = word.toLowerCase();
-              // Find connections involving this word
               const myConnections = allConnections.filter(c => c.source === w || c.target === w);
-              // Sort by similarity
               myConnections.sort((a, b) => b.similarity - a.similarity);
-              // Take top 4
-              const topK = myConnections.slice(0, 4);
+              
+              // Limit: Topic nodes 4, Context nodes 2
+              const isTopic = nodes.some(n => n.label.toLowerCase() === w);
+              const limit = isTopic ? 4 : 2;
+              
+              const topK = myConnections.slice(0, limit);
               
               topK.forEach(conn => {
                   const key = getLinkKey(conn.source, conn.target);
                   if (!linkSet.has(key)) {
                       linkSet.add(key);
-                      
-                      // Map back to Node IDs
                       const sourceId = nodeIdMap.get(conn.source);
                       const targetId = nodeIdMap.get(conn.target);
 
@@ -464,7 +643,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                           simplifiedLinks.push({
                               source: sourceId,
                               target: targetId,
-                              label: '', // To be filled
+                              label: '', 
                               similarity: conn.similarity
                           });
                       }
@@ -472,23 +651,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
               });
           });
 
-          // 3. Check Persistence & Generate Missing Labels
-          const pairsToLabel: { source: string; target: string }[] = [];
+          // 5. Check Persistence & Generate Missing Labels
           const linksWithLabels = [...simplifiedLinks];
 
           // Load stored connections
           if (!forceRefresh) {
-              // We need to check each link for an existing label
-              // Optimization: Load all source words involved? 
-              // Or just check one by one. Given limited size (e.g. 20 words * 4 links = 80 links), it's fast enough.
-              // Even better: getSemanticConnections returns ALL connections for a source.
-              
               const sourceWords = new Set(simplifiedLinks.map(l => {
-                  const node = nodes.find(n => n.id === l.source);
+                  const node = allNodes.find(n => n.id === l.source);
                   return node?.label.toLowerCase();
               }));
               
-              const storedConnectionsMap = new Map<string, any>(); // word -> { connections: [] }
+              const storedConnectionsMap = new Map<string, any>();
               
               await Promise.all(Array.from(sourceWords).map(async (word) => {
                   if (!word) return;
@@ -496,167 +669,299 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                   if (stored) storedConnectionsMap.set(word, stored);
               }));
 
-              // Apply stored labels
               linksWithLabels.forEach(link => {
-                  const sourceLabel = nodes.find(n => n.id === link.source)?.label;
-                  const targetLabel = nodes.find(n => n.id === link.target)?.label;
+                  const sourceLabel = allNodes.find(n => n.id === link.source)?.label;
+                  const targetLabel = allNodes.find(n => n.id === link.target)?.label;
                   
                   if (!sourceLabel || !targetLabel) return;
 
                   let foundLabel = '';
-                  
-                  // Check source -> target
                   const storedSrc = storedConnectionsMap.get(sourceLabel.toLowerCase());
                   if (storedSrc) {
                       const conn = storedSrc.connections.find((c: any) => c.target === targetLabel.toLowerCase());
-                      if (conn && conn.label) foundLabel = conn.label;
+                      if (conn && conn.label) {
+                          foundLabel = conn.label;
+                          if (conn.example) link.example = conn.example;
+                          if (conn.example_cn) link.example_cn = conn.example_cn;
+                      }
                   }
                   
-                  // Check target -> source (if undirected)
                   if (!foundLabel) {
                       const storedTgt = storedConnectionsMap.get(targetLabel.toLowerCase());
                       if (storedTgt) {
                           const conn = storedTgt.connections.find((c: any) => c.target === sourceLabel.toLowerCase());
-                          if (conn && conn.label) foundLabel = conn.label;
+                          if (conn && conn.label) {
+                              foundLabel = conn.label;
+                              if (conn.example) link.example = conn.example;
+                              if (conn.example_cn) link.example_cn = conn.example_cn;
+                          }
                       }
                   }
 
                   if (foundLabel) {
                       link.label = foundLabel;
-                  } else {
-                      pairsToLabel.push({ source: sourceLabel, target: targetLabel });
                   }
               });
-          } else {
-              // Force Refresh: Treat all as needing labels
-               simplifiedLinks.forEach(link => {
-                  const sourceLabel = nodes.find(n => n.id === link.source)?.label;
-                  const targetLabel = nodes.find(n => n.id === link.target)?.label;
-                  if (sourceLabel && targetLabel) {
-                      pairsToLabel.push({ source: sourceLabel, target: targetLabel });
-                  }
-               });
           }
 
-          // 4. Generate Labels for Missing Pairs (Blocking)
-          if (pairsToLabel.length > 0 && apiKey) {
-              // Increased limit to 100 to ensure better coverage
-              const batchSize = 100;
-              const batches = [];
-              for (let i = 0; i < pairsToLabel.length; i += batchSize) {
-                  batches.push(pairsToLabel.slice(i, i + batchSize));
-              }
-              
-              const results = await Promise.all(batches.map(batch => generateEdgeLabels(batch, apiKey)));
-              const allLabeledPairs = results.flat();
+          // [REMOVED] Batch Generation (Step 6) - Now handled on-hover
 
-              // Update links with new labels
-              linksWithLabels.forEach(link => {
-                   const srcId = typeof link.source === 'object' ? link.source.id : link.source;
-                   const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
-                   const srcLabel = nodes.find(n => n.id === srcId)?.label;
-                   const tgtLabel = nodes.find(n => n.id === tgtId)?.label;
+          // [NEW] Synchronous Label Generation (Prioritize Colors)
+          // User requested to wait for colors before rendering
+          const missingLabelLinks = linksWithLabels.filter(l => !l.label && l.source && l.target);
+          if (missingLabelLinks.length > 0 && apiKey) {
+               const pairs = missingLabelLinks.map(l => {
+                   const sNode = allNodes.find(n => n.id === l.source);
+                   const tNode = allNodes.find(n => n.id === l.target);
+                   return { source: sNode?.label || '', target: tNode?.label || '' };
+               }).filter(p => p.source && p.target);
+
+               try {
+                   console.log('Generating labels for colors (waiting)...');
+                   const labeledPairs = await generateEdgeLabelsOnly(pairs, apiKey);
                    
-                   const match = allLabeledPairs.find(p => 
-                       (p.source === srcLabel && p.target === tgtLabel) || 
-                       (p.source === tgtLabel && p.target === srcLabel)
-                   );
-                   if (match) link.label = match.label;
-              });
+                   // Update linksWithLabels
+                   linksWithLabels.forEach(link => {
+                       const sId = typeof link.source === 'object' ? link.source.id : link.source;
+                       const tId = typeof link.target === 'object' ? link.target.id : link.target;
+                       const sNode = allNodes.find(n => n.id === sId);
+                       const tNode = allNodes.find(n => n.id === tId);
+                       
+                       if (!sNode || !tNode) return;
 
-              // Save to DB (Async)
-              (async () => {
-                  for (const pair of allLabeledPairs) {
-                      const sourceWord = pair.source.toLowerCase();
-                      const targetWord = pair.target.toLowerCase();
-                      const label = pair.label;
-
-                      // Update Source -> Target
-                      const stored = await getSemanticConnections(sourceWord) || { source: sourceWord, connections: [] };
-                      const existingConnIndex = stored.connections.findIndex(c => c.target === targetWord);
-                      
-                      if (existingConnIndex !== -1) {
-                          stored.connections[existingConnIndex].label = label;
-                          await saveSemanticConnections(stored);
-                      }
-
-                      // Also update Target -> Source (Bidirectional logic)
-                      const storedTgt = await getSemanticConnections(targetWord) || { source: targetWord, connections: [] };
-                      const existingConnIndexTgt = storedTgt.connections.findIndex(c => c.target === sourceWord);
-                      if (existingConnIndexTgt !== -1) {
-                          storedTgt.connections[existingConnIndexTgt].label = label;
-                          await saveSemanticConnections(storedTgt);
-                      }
-                  }
-              })();
+                       const match = labeledPairs.find(p => 
+                           (p.source === sNode.label && p.target === tNode.label) || 
+                           (p.source === tNode.label && p.target === sNode.label)
+                       );
+                       
+                       if (match) {
+                           link.label = match.label;
+                       }
+                   });
+               } catch (err) {
+                   console.error("Label generation failed, proceeding with default colors", err);
+               }
           }
 
-          setGraphData({ nodes, links: linksWithLabels });
+          setGraphData({ nodes: allNodes, links: linksWithLabels });
+          
+          await saveGroupGraphCache({
+              id: cacheKey,
+              nodes: allNodes,
+              links: linksWithLabels,
+              timestamp: Date.now()
+          });
+          console.log('Graph cached:', cacheKey);
+
       } finally {
           setIsGraphGenerating(false);
       }
   };
 
+  /**
+   * @description 更新复习模式下的知识网络
+   * 使用全局知识网络中的局部位置 (Subgraph)
+   */
   const updateGraphForContext = async (card: WordCard) => {
       const db = EmbeddingService.getInstance();
-      const neighbors = await db.getNeighbors(card.word);
       
-      // Center Node
-      const nodes: CustomNode[] = [{
+      // [NEW] Review Mode - Real-time AI Graph Generation
+      if (apiKey) {
+          setIsGraphGenerating(true);
+          try {
+              let relatedItems = [];
+              
+              // 1. Check L1 Cache
+              if (aiCacheRef.current.has(card.word)) {
+                  const cached = aiCacheRef.current.get(card.word);
+                  if (cached !== 'fetching') {
+                      relatedItems = cached;
+                  } else {
+                      // Wait for it? Or just proceed to fetch again (it will handle promise overlap if we used a promise cache, but here simple lock)
+                      // For now, if fetching, we wait a bit or just let it finish and update? 
+                      // Simplest: just await the generation function again, but we need to make sure we don't double call if we can help it.
+                      // Actually, let's just call generate directly if cache is not ready, 
+                      // but we should check DB first if L1 missed (in case prefetch didn't run).
+                      
+                      // But wait, if it is 'fetching', we should probably wait for it. 
+                      // But implementing a wait queue is complex. 
+                      // Let's just try to fetch from DB/API again, assuming prefetch might be slow.
+                  }
+              }
+              
+              if (relatedItems.length === 0) {
+                  // 2. Check L2 Cache (DB)
+                  const dbCached = await getAIGraphCache(card.word);
+                  if (dbCached && (Date.now() - dbCached.timestamp < 30 * 24 * 60 * 60 * 1000)) {
+                      relatedItems = dbCached.relatedItems;
+                      aiCacheRef.current.set(card.word, relatedItems);
+                  }
+              }
+
+              if (relatedItems.length === 0) {
+                  // 3. Fetch from API
+                  relatedItems = await generateRelatedWords(card.word, apiKey);
+                  if (relatedItems.length > 0) {
+                      aiCacheRef.current.set(card.word, relatedItems);
+                      await saveAIGraphCache({ word: card.word, relatedItems, timestamp: Date.now() });
+                  }
+              }
+              
+              // Center Node
+              const centerNode: CustomNode = {
+                  id: card.id,
+                  label: card.word,
+                  meaning: card.meaning,
+                  type: 'topic',
+                  val: 45, // Prominent center
+                  group: 1,
+                  data: card
+              };
+              
+              // Related Nodes (AI Generated)
+              const relatedNodes: CustomNode[] = relatedItems.map((item: any, index: number) => ({
+                  id: item.word, // Use word as ID for simplicity in this mode
+                  label: item.word,
+                  meaning: item.meaning,
+                  type: 'related',
+                  val: 20, // Smaller, secondary
+                  group: 2,
+                  // Create a minimal card data structure for compatibility
+                  data: {
+                      ...card,
+                      id: item.word,
+                      word: item.word,
+                      meaning: item.meaning,
+                      state: State.New // Treat as new for now
+                  }
+              }));
+              
+              const nodes = [centerNode, ...relatedNodes];
+              
+              // Links
+              const links = relatedItems.map((item: any) => ({
+                  source: card.id,
+                  target: item.word,
+                  label: item.relation, // Directly use AI provided relation
+                  value: 1
+              }));
+              
+              setGraphData({ nodes, links });
+              
+          } catch (e) {
+              console.error("AI Graph Generation Failed, falling back to DB", e);
+              // Fallback to DB logic below if AI fails
+              await generateFromDB(card);
+          } finally {
+              setIsGraphGenerating(false);
+          }
+          return;
+      }
+
+      // Fallback: Local DB Logic (Original)
+      await generateFromDB(card);
+  };
+  
+  const generateFromDB = async (card: WordCard) => {
+      const db = EmbeddingService.getInstance();
+      // 1. 获取核心词的邻居 (Expanded to 12 for better local context)
+      const neighbors = await db.getNeighbors(card.word);
+      const contextNeighbors = neighbors.slice(0, 12);
+      
+      // 2. 准备所有涉及的单词列表
+      const allCardsMap = new Map<string, WordCard>();
+      allCardsMap.set(card.word.toLowerCase(), card);
+      contextNeighbors.forEach(n => allCardsMap.set(n.card.word.toLowerCase(), n.card));
+      
+      const wordList = [card.word, ...contextNeighbors.map(n => n.card.word)];
+      
+      // 3. 获取子图结构 (包含所有节点间的连接)
+      // 这将返回所有选中单词之间的相互连接，形成网状结构而非星型结构
+      const subGraph = await db.getGraphForWords(wordList);
+      
+      // 4. 转换为 UI 节点 (使用 Card ID)
+      const nodes: CustomNode[] = [];
+      
+      // 确保中心词在节点列表中 (且样式突出)
+      nodes.push({
           id: card.id,
           label: card.word,
           meaning: card.meaning,
           type: 'topic',
-          val: 30,
+          val: 40, // Bigger for center
           group: 1,
           data: card
-      }];
-
-      // Add neighbors (limit to 5-8 to avoid clutter)
-      const contextNeighbors = neighbors.slice(0, 6);
-      
-      contextNeighbors.forEach(n => {
-           // Only add if not already present (though unlikely for neighbors)
-           if (!nodes.some(existing => existing.id === n.card.id)) {
-               nodes.push({
-                   id: n.card.id,
-                   label: n.card.word,
-                   meaning: n.card.meaning,
-                   type: 'related',
-                   val: 15,
-                   group: 2,
-                   data: n.card
-               });
-           }
       });
 
-      const links = contextNeighbors.map(n => ({
-          source: card.id,
-          target: n.card.id,
-          label: ''
-      }));
+      // 添加其他节点
+      subGraph.nodes.forEach(n => {
+          const lowerWord = n.id.toLowerCase(); // getGraphForWords returns word as id
+          if (lowerWord === card.word.toLowerCase()) return; // Skip center (added above)
+          
+          const neighborCard = allCardsMap.get(lowerWord);
+          if (neighborCard) {
+              nodes.push({
+                  id: neighborCard.id,
+                  label: neighborCard.word,
+                  meaning: neighborCard.meaning,
+                  type: 'related',
+                  val: 15,
+                  group: 2,
+                  data: neighborCard
+              });
+          }
+      });
+
+      // 5. 转换 Links (Word -> UUID)
+      // subGraph.links use words as source/target
+      const links = subGraph.links.map(link => {
+          const sourceWord = (typeof link.source === 'object' ? (link.source as any).id : link.source).toLowerCase();
+          const targetWord = (typeof link.target === 'object' ? (link.target as any).id : link.target).toLowerCase();
+          
+          const sourceCard = allCardsMap.get(sourceWord);
+          const targetCard = allCardsMap.get(targetWord);
+          
+          if (sourceCard && targetCard) {
+              return {
+                  source: sourceCard.id,
+                  target: targetCard.id,
+                  value: link.value,
+                  label: '' // Initially empty
+              };
+          }
+          return null;
+      }).filter(l => l !== null) as any[];
+
+      // 6. 设置数据
+      setGraphData({ nodes, links });
       
+      // 7. 生成中心词连接的标签 (仅中心词)
+      // 避免 API 调用过多，仅为直接连接生成解释
       const pairs = contextNeighbors.map(n => ({
           source: card.word,
           target: n.card.word
       }));
 
-      setGraphData({ nodes, links });
-      
       if (pairs.length > 0 && apiKey) {
            generateEdgeLabels(pairs, apiKey).then(labeledPairs => {
                setGraphData(prev => {
                    if (!prev) return null;
                    const newLinks = prev.links.map(link => {
-                       const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
-                       const tgtLabel = prev.nodes.find(n => n.id === tgtId)?.label;
+                       const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+                       const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
                        
-                       // Since all links are from source card, we just match target or source
+                       const srcNode = prev.nodes.find(n => n.id === srcId);
+                       const tgtNode = prev.nodes.find(n => n.id === tgtId);
+                       
+                       if (!srcNode || !tgtNode) return link;
+
+                       // Check if this link matches any labeled pair
                        const match = labeledPairs.find(p => 
-                           (p.source === card.word && p.target === tgtLabel) || 
-                           (p.source === tgtLabel && p.target === card.word)
+                           (p.source.toLowerCase() === srcNode.label.toLowerCase() && p.target.toLowerCase() === tgtNode.label.toLowerCase()) || 
+                           (p.source.toLowerCase() === tgtNode.label.toLowerCase() && p.target.toLowerCase() === srcNode.label.toLowerCase())
                        );
-                       return match ? { ...link, label: match.label } : link;
+                       
+                       return match ? { ...link, label: match.label, example: match.example } : link;
                    });
                    return { ...prev, links: newLinks };
                });
@@ -782,47 +1087,76 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
       const centerY = (minY + maxY) / 2;
 
       // 2. 计算最佳缩放 (Elastic Adaptive Zoom)
-      // 考虑左侧面板遮挡 (默认面板在左侧，宽度约 500px)
-      // [MODIFIED] Only account for panel if it's actually visible
-      const isPanelVisible = mode === 'session' && phase === 'word-learning';
+      // [MODIFIED] Dynamic Panel Obstruction Calculation
+      // Calculate the actual obstructed area based on card position
       const isDesktop = dimensions.width > 768;
-      const PANEL_WIDTH = (isDesktop && isPanelVisible) ? 520 : 0; 
+      let panelWidth = 0;
+      let panelX = 0;
+      
+      if (mode === 'session' && phase === 'word-learning') {
+          if (cardPosition) {
+              // If card is moved, use its actual position
+              // Assuming card width is roughly 450px (matches Flashcard default/min)
+              // If card is roughly centered, x is offset. 
+              // But Flashcard uses x/y as transform from 0,0 (top-left) if using absolute positioning?
+              // Flashcard uses relative position with x/y transform. 
+              // If initialPosition is set, it renders at that x/y.
+              // We'll assume the card covers from x to x + 500.
+              panelX = cardPosition.x;
+              panelWidth = 500; 
+          } else {
+              // Default position (usually centered or left-aligned depending on layout)
+              // If standard layout, panel is on the left.
+              panelWidth = (isDesktop) ? 520 : 0;
+          }
+      }
+
+      // Calculate Safe Zone (Area NOT covered by card)
+      // If card is on the left (x < width/2), safe zone is to the right.
+      // If card is on the right, safe zone is to the left.
+      const isCardOnLeft = panelX < dimensions.width / 2;
       
       // 计算剩余可用空间的尺寸
-      const availableW = dimensions.width - PANEL_WIDTH - padding * 2;
+      // Simple heuristic: subtract panel width from total width
+      const availableW = Math.max(dimensions.width - panelWidth - padding * 2, 100);
       const availableH = dimensions.height - padding * 2;
       
       const safeW = Math.max(bboxW, 1);
       const safeH = Math.max(bboxH, 1);
 
-      // 目标缩放: 适应可用空间，限制在 [0.8, 5] 之间
+      // 目标缩放
       let targetZoom = Math.min(availableW / safeW, availableH / safeH);
       targetZoom = Math.min(Math.max(targetZoom, 0.8), 5);
       
-      // 如果是单点聚焦，强制最小缩放以保证清晰度
       if (nodesToFit.length === 1) {
           targetZoom = Math.max(targetZoom, 3.5);
       }
 
       // 3. 构图感知运镜 (Composition-Aware Framing)
-      // 计算"安全可视区域"的中心 (Safe Zone Center)
-      // 默认面板在左侧，安全区域从 PANEL_WIDTH 开始
-      const safeZoneStart = PANEL_WIDTH;
-      const safeZoneCenter = safeZoneStart + (dimensions.width - safeZoneStart) / 2;
+      // Calculate Center of Safe Zone
+      let safeZoneCenter = dimensions.width / 2;
       
-      // 计算屏幕偏移量 (从屏幕物理中心到安全区域中心的距离)
-      // ScreenCenter = dimensions.width / 2
-      // Offset = SafeZoneCenter - ScreenCenter
+      if (mode === 'session' && phase === 'word-learning') {
+          if (isCardOnLeft) {
+             // Card on left, safe zone is [PanelEnd, ScreenWidth]
+             const panelEnd = (cardPosition ? panelX + panelWidth : panelWidth);
+             safeZoneCenter = panelEnd + (dimensions.width - panelEnd) / 2;
+          } else {
+             // Card on right, safe zone is [0, PanelStart]
+             const panelStart = (cardPosition ? panelX : dimensions.width - panelWidth);
+             safeZoneCenter = panelStart / 2;
+          }
+      }
+
+      // Screen Offset
       const screenOffset = safeZoneCenter - (dimensions.width / 2);
       
-      // 反推摄像机位置
-      // 我们希望 GraphCenter 显示在 SafeZoneCenter
-      // CameraX = GraphCenter - (ScreenOffset / Zoom)
+      // New Camera X
       const newCameraX = centerX - (screenOffset / targetZoom);
       
       graphRef.current.centerAt(newCameraX, centerY, duration);
       graphRef.current.zoom(targetZoom, duration);
-  }, [dimensions]);
+  }, [dimensions, cardPosition, mode, phase]);
 
   // Focus Effect (Smart Zoom with Right-Side Bias)
   useEffect(() => {
@@ -998,7 +1332,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }
   }, [currentItem, generateOptions]);
 
-  const handleChoiceSelect = (selectedCard: WordCard) => {
+  const handleChoiceSelect = useCallback((selectedCard: WordCard) => {
     if (choiceResult || !currentItem) return;
     setSelectedChoiceId(selectedCard.id);
 
@@ -1031,7 +1365,23 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             });
         }, 1500);
     }
-  };
+  }, [choiceResult, currentItem]);
+
+  // [User Request]: Number key selection for Choice Mode
+  useEffect(() => {
+    if (currentItem?.type !== 'choice' || choiceResult) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const num = parseInt(e.key);
+      if (!isNaN(num) && num >= 1 && num <= choiceOptions.length) {
+        e.preventDefault();
+        handleChoiceSelect(choiceOptions[num - 1]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentItem, choiceResult, choiceOptions]);
 
   // Test Logic (Spelling)
   useEffect(() => {
@@ -1045,33 +1395,69 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }
   }, [currentItem]);
 
-  const handleCheckSpelling = async () => {
-    if (!inputValue.trim() || !currentItem) return;
-    const isCorrect = inputValue.trim().toLowerCase() === currentItem.card.word.toLowerCase();
+  // [User Request] Auto-submit when length matches
+  useEffect(() => {
+      if (currentItem?.type === 'test' && inputValue && currentItem.card.word) {
+          if (inputValue.length === currentItem.card.word.length) {
+              handleCheckSpelling(inputValue);
+          }
+      }
+  }, [inputValue, currentItem]);
+
+  const handleCheckSpelling = async (overrideValue?: string) => {
+    const checkValue = typeof overrideValue === 'string' ? overrideValue : inputValue;
+    if (!checkValue.trim() || !currentItem) return;
+    const isCorrect = checkValue.trim().toLowerCase() === currentItem.card.word.toLowerCase();
 
     if (isCorrect) {
       setTestResult('correct');
       playSpellingSuccessSound();
       
-      // Mark as Completed
+      // Mark as Completed (but don't advance yet)
       setCompletedNodeIds(prev => new Set(prev).add(currentItem.nodeId));
+      
+      // Only rate if first time correct? For simplicity, we rate every time they submit correctly.
+      // Or maybe check if we already rated? 
+      // For now, let's allow re-rating or just assume it's fine.
       setSessionStats(prev => ({ ...prev, correct: prev.correct + 1, total: prev.total + 1 }));
 
       // If FSRS handler is provided (Session Mode), call it
       if (onRate) {
-          await onRate(currentItem.card, Rating.Good);
+          // [FIX]: Do not await this. Let it run in background to prevent UI blocking.
+          // User complained about "no auto jump" - likely due to DB latency.
+          onRate(currentItem.card, Rating.Good).catch(console.error);
       }
+      
+      // Update Connections in background
+      EmbeddingService.getInstance().updateConnections(currentItem.card.word).catch(console.error);
 
-      setTimeout(async () => {
-        // Update Connections
-        EmbeddingService.getInstance().updateConnections(currentItem.card.word).catch(console.error);
-        // Remove from queue
-        setQueue(prev => prev.slice(1));
-      }, 1000);
+      // [User Request] Auto-submit and Jump
+      setTimeout(() => {
+        setQueue(prev => {
+            const [current, ...rest] = prev;
+            // If test is passed, remove it or move to next logic?
+            // Usually if passed, we are done with this word for this session loop?
+            // Or check if we have more steps? Current flow: Learn -> Choice -> Test -> Done.
+            // So we should remove it from queue.
+            
+            // If using session groups, we might want to advance to next word in group?
+            // Logic: queue.slice(1)
+            
+            // However, the 'handleNextWord' does slice(1).
+            return prev.slice(1);
+        });
+        setInputValue('');
+        setTestResult(null);
+      }, 1000); // 1s delay to see the "Correct" green state
     } else {
       setTestResult('incorrect');
       playFailSound();
       setSessionStats(prev => ({ ...prev, total: prev.total + 1 }));
+      
+      // Auto-reset for incorrect answer after delay? 
+      // User wants repetitive practice, so maybe just let them clear it?
+      // But if incorrect, usually we want to show the right answer then let them try again or move back to learn.
+      // Current logic sends back to learn after 2s.
       setTimeout(() => {
         setQueue(prev => {
             const [current, ...rest] = prev;
@@ -1086,6 +1472,18 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
       }, 2000);
     }
   };
+
+  const handleNextWord = useCallback(() => {
+      setQueue(prev => prev.slice(1));
+      setInputValue('');
+      setTestResult(null);
+  }, []);
+
+  const handleRetrySpelling = useCallback(() => {
+      setInputValue('');
+      setTestResult(null);
+      setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
 
   // Check Phase Completion
   useEffect(() => {
@@ -1115,13 +1513,22 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                   setPhase('overview'); // Show overview for next group
               } else {
                   // All groups completed
-                  setPhase('connection-learning');
+                  if (connectionQueue.length > 0) {
+                      setPhase('connection-learning');
+                  } else {
+                      setPhase('summary');
+                  }
               }
           } else {
-              setPhase('connection-learning');
+              // Single session completed
+              if (connectionQueue.length > 0) {
+                  setPhase('connection-learning');
+              } else {
+                  setPhase('summary');
+              }
           }
       }
-  }, [queue, phase, graphData, sessionGroups, activeGroupIndex, completedNodeIds]);
+  }, [queue, phase, graphData, sessionGroups, activeGroupIndex, completedNodeIds, connectionQueue.length]);
 
   const handleNextConnection = () => {
       if (currentConnectionIndex < connectionQueue.length - 1) {
@@ -1134,6 +1541,379 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
   };
 
   // --- Render Helpers ---
+
+  // [OPTIMIZED] Memoized Graph Handlers
+  const handleNodeCanvas = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+
+      const label = node.label;
+      
+      // State Flags
+      const isCompleted = completedNodeIds.has(node.id);
+      const isActive = currentItem?.nodeId === node.id;
+      const isNeighbor = activeNeighborIds.has(node.id);
+      const isJustLearned = justLearnedNodeId === node.id;
+      const isHighlighted = highlightedNeighborId === node.id;
+      const isHovered = hoveredNode === node;
+      const isContext = node.type === 'context'; // [NEW] Context Node
+
+      // Check if this node is a neighbor of the hovered node
+      let isHoveredNeighbor = false;
+      if (hoveredNode && hoveredNode !== node) {
+          isHoveredNeighbor = graphData?.links.some((link: any) => {
+              const sId = typeof link.source === 'object' ? link.source.id : link.source;
+              const tId = typeof link.target === 'object' ? link.target.id : link.target;
+              return (sId === hoveredNode.id && tId === node.id) || 
+                     (sId === node.id && tId === hoveredNode.id);
+          }) || false;
+      }
+
+      const isRelevant = isActive || isNeighbor || isHovered || isHoveredNeighbor || isHighlighted || isJustLearned || isCompleted || isContext;
+
+      // 1. Ghost Mode (Inactive but Visible)
+      // [User Request]: Show unselected words as inactive/ghost nodes with visible word balls and labels.
+      if (!isRelevant) {
+          // [FIX]: Dimmed Ghost Mode (Waiting to be lit up)
+          // User requested "gray/dim mode" for unselected words.
+          
+          const ghostR = Math.sqrt(node.val || 1) * 1.2; // Slightly reduced size (was 2.0)
+          
+          ctx.save(); // Protect context
+          ctx.globalAlpha = 0.4; // Low opacity (Dimmed)
+
+          // 1. Very Subtle Glow (Just to separate from background)
+          const ghostGlowRadius = ghostR * 1.5;
+          const ghostGradient = ctx.createRadialGradient(node.x, node.y, ghostR * 0.2, node.x, node.y, ghostGlowRadius);
+          ghostGradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)'); 
+          ghostGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, ghostGlowRadius, 0, 2 * Math.PI, false);
+          ctx.fillStyle = ghostGradient;
+          ctx.fill();
+
+          // 2. Ghost Body (Gray/Glassy)
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, ghostR, 0, 2 * Math.PI, false);
+          ctx.fillStyle = 'rgba(200, 200, 200, 0.15)'; // Very faint gray
+          ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)'; // Faint stroke
+          ctx.lineWidth = 1; // Thin line
+          ctx.fill();
+          ctx.stroke();
+
+          // 3. Ghost Label (Subtle but readable)
+          if (true) {
+            const fontSize = 12; // Standard font size
+            ctx.font = `${fontSize}px Sans-Serif`; 
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(220, 220, 220, 0.5)'; // Dimmed white text
+            // No strong shadow, just a faint outline for contrast if needed
+            ctx.shadowColor = 'rgba(0,0,0,0.5)'; 
+            ctx.shadowBlur = 2;
+            ctx.fillText(label, node.x + ghostR + 4, node.y);
+          }
+          
+          ctx.restore();
+          // Return early since we handled the drawing for this node
+          return; 
+      }
+
+      // Dynamic Depth of Field (DoF)
+      const isFocused = phase === 'overview' || isActive || isCompleted || isNeighbor || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor;
+      const dofScale = isFocused ? 1 : (isContext ? 0.6 : 0.6);
+      
+      const r = Math.sqrt(node.val || 1) * dofScale;
+
+      // Neighbor Color Logic
+      let neighborRelationColor: string | null = null;
+      if (isNeighbor && currentItem?.nodeId) {
+          const link = graphData?.links.find((l: any) => {
+              const sId = typeof l.source === 'object' ? l.source.id : l.source;
+              const tId = typeof l.target === 'object' ? l.target.id : l.target;
+              return (sId === currentItem.nodeId && tId === node.id) || 
+                     (sId === node.id && tId === currentItem.nodeId);
+          });
+          if (link && link.label) {
+               const lbl = link.label.toLowerCase();
+               if (lbl.includes('近义') || lbl.includes('synonym')) neighborRelationColor = '#4ade80';
+               else if (lbl.includes('反义') || lbl.includes('antonym')) neighborRelationColor = '#f87171';
+               else if (lbl.includes('派生') || lbl.includes('derivative')) neighborRelationColor = '#a78bfa';
+               else if (lbl.includes('形似') || lbl.includes('look-alike')) neighborRelationColor = '#facc15';
+               else if (lbl.includes('搭配') || lbl.includes('collocation')) neighborRelationColor = '#60a5fa';
+               else if (lbl.includes('场景') || lbl.includes('scenario')) neighborRelationColor = '#22d3ee';
+               else if (lbl.includes('相关') || lbl.includes('related') || lbl.includes('关联')) neighborRelationColor = '#94a3b8';
+               else neighborRelationColor = '#cbd5e1';
+          }
+      }
+      
+      const time = Date.now();
+      const pulse = (Math.sin(time * 0.003) + 1) / 2;
+      const breathingScale = 1 + pulse * 0.2;
+      
+      const finalScale = (isJustLearned || isHighlighted) ? breathingScale * 1.5 : breathingScale;
+
+      // Visibility Logic
+      const isVisible = isFocused || (isContext); 
+      const opacity = isVisible ? 1 : 0.1;
+
+      ctx.save();
+      ctx.globalAlpha = opacity;
+
+      if (isActive || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor) {
+           const baseColor = isActive ? '#ffffff' : (isHighlighted ? '#facc15' : ((isHovered || isHoveredNeighbor) ? '#60a5fa' : '#10b981'));
+           const glowColor = isActive ? 'rgba(255, 255, 255, 0.5)' : (isHighlighted ? 'rgba(250, 204, 21, 0.5)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.5)' : 'rgba(16, 185, 129, 0.4)'));
+           
+           // Halo
+           const haloScale = (isHoveredNeighbor) ? 0.7 : 1.0;
+           const haloRadius = r * 5 * finalScale * haloScale;
+           const haloGradient = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, haloRadius);
+           haloGradient.addColorStop(0, glowColor);
+           haloGradient.addColorStop(1, 'rgba(0,0,0,0)');
+           
+           ctx.beginPath();
+           ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI, false);
+           ctx.fillStyle = haloGradient;
+           ctx.fill();
+
+           // Ripple
+           if (isActive || isHighlighted || isHovered) {
+               const rippleRadius = r * 3 * (1 + (Math.sin(time * 0.002) + 1) * 0.3);
+               ctx.beginPath();
+               ctx.arc(node.x, node.y, rippleRadius, 0, 2 * Math.PI, false);
+               const rippleColor = isActive ? '255, 255, 255' : (isHighlighted ? '250, 204, 21' : '96, 165, 250');
+               ctx.strokeStyle = `rgba(${rippleColor}, ${0.6 - (Math.sin(time * 0.002) + 1) * 0.3})`;
+               ctx.lineWidth = 1;
+               ctx.stroke();
+
+               const rippleRadius2 = r * 2 * (1 + (Math.cos(time * 0.002) + 1) * 0.2);
+               ctx.beginPath();
+               ctx.arc(node.x, node.y, rippleRadius2, 0, 2 * Math.PI, false);
+               ctx.strokeStyle = `rgba(${rippleColor}, ${0.5 - (Math.cos(time * 0.002) + 1) * 0.2})`;
+               ctx.lineWidth = 0.5;
+               ctx.stroke();
+           }
+
+           // Mid Glow
+           const glowRadius = r * 3;
+           const glowGradient = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, glowRadius);
+           const midGlowColor = isActive ? 'rgba(255, 255, 255, 0.8)' : (isHighlighted ? 'rgba(250, 204, 21, 0.6)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.6)' : 'rgba(52, 211, 153, 0.6)'));
+           glowGradient.addColorStop(0, midGlowColor); 
+           glowGradient.addColorStop(1, 'rgba(0,0,0,0)');
+           
+           ctx.beginPath();
+           ctx.arc(node.x, node.y, glowRadius, 0, 2 * Math.PI, false);
+           ctx.fillStyle = glowGradient;
+           ctx.fill();
+
+           // Core Orb
+           const coreRadius = r * 1.5;
+           const coreGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, coreRadius);
+           coreGradient.addColorStop(0, '#ffffff');
+           const coreMidColor = isActive ? '#f8fafc' : (isHighlighted ? '#fde047' : ((isHovered || isHoveredNeighbor) ? '#bfdbfe' : '#6ee7b7'));
+           coreGradient.addColorStop(0.3, coreMidColor);
+           coreGradient.addColorStop(0.7, baseColor);
+           coreGradient.addColorStop(1, 'rgba(0,0,0,0)');
+           
+           ctx.beginPath();
+           ctx.arc(node.x, node.y, coreRadius, 0, 2 * Math.PI, false);
+           ctx.fillStyle = coreGradient;
+           ctx.fill();
+      } else {
+          // Standard Rendering
+          let color = '#94a3b8'; 
+          if (isContext) {
+              color = '#cbd5e1'; // Light Gray for Context
+          } else if (isNeighbor) {
+              color = neighborRelationColor || '#ffffff';
+          } else if (isCompleted) {
+              color = '#ec4899';
+          } else if (node.type === 'root') {
+              color = '#f472b6'; 
+          } else if (node.type === 'topic') {
+              color = '#6366f1'; 
+          }
+          
+          // Shadow
+          if (isNeighbor) {
+              ctx.shadowColor = neighborRelationColor || 'rgba(255, 255, 255, 0.6)'; 
+              ctx.shadowBlur = 30; 
+          } else if (isCompleted) {
+              ctx.shadowBlur = 20; 
+              ctx.shadowColor = color;
+          } else if (phase === 'overview') {
+              ctx.shadowBlur = 10;
+              ctx.shadowColor = color;
+          } else {
+              ctx.shadowBlur = 0;
+          }
+
+          // Draw Node
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+          
+          const gradient = ctx.createRadialGradient(node.x, node.y, r * 0.1, node.x, node.y, r);
+          gradient.addColorStop(0, '#ffffff'); 
+          gradient.addColorStop(0.4, color);   
+          gradient.addColorStop(1, color);     
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          
+          ctx.shadowBlur = 0; 
+
+          // Rings
+          if (isNeighbor) {
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
+              ctx.strokeStyle = neighborRelationColor || 'rgba(255, 255, 255, 0.4)'; 
+              ctx.lineWidth = 1;
+              ctx.stroke();
+          }
+      }
+
+      // Draw Label
+      if (true) { // Always show if relevant
+          const fontSize = isActive ? 12 : (node.type === 'root' ? 10 : (node.type === 'topic' ? 8 : 6));
+          
+          ctx.font = `${(isCompleted || isActive || isHighlighted) ? 'bold ' : ''}${fontSize}px Sans-Serif`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          
+          if (isNeighbor || isActive || isJustLearned || isHighlighted) {
+              ctx.fillStyle = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : '#ffffff'); 
+              ctx.shadowColor = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : 'rgba(255, 255, 255, 0.6)'); 
+              ctx.shadowBlur = 4;
+          } else if (isContext) {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; // Faint text for context
+              ctx.shadowBlur = 0;
+          } else {
+              ctx.fillStyle = isCompleted ? '#fff' : 'rgba(255, 255, 255, 0.7)';
+              ctx.shadowBlur = 0;
+          }
+          
+          ctx.fillText(label, node.x + r + 8, node.y);
+      }
+      
+      ctx.restore();
+  }, [completedNodeIds, activeNeighborIds, currentItem, justLearnedNodeId, highlightedNeighborId, hoveredNode, graphData, phase]);
+
+  const handleLinkCanvas = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const source = link.source;
+      const target = link.target;
+      
+      if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return;
+      if (!Number.isFinite(source.x) || !Number.isFinite(source.y) || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return;
+
+      const isActiveConnection = currentItem?.nodeId === source.id || currentItem?.nodeId === target.id;
+      const isHoveredConnection = hoveredNode && (source.id === hoveredNode.id || target.id === hoveredNode.id);
+      
+      const isInFocus = isActiveConnection || isHoveredConnection;
+      
+      const sourceVisible = completedNodeIds.has(source.id) || activeNeighborIds.has(source.id) || currentItem?.nodeId === source.id;
+      const targetVisible = completedNodeIds.has(target.id) || activeNeighborIds.has(target.id) || currentItem?.nodeId === target.id;
+      const isStructurallyVisible = isActiveConnection || (sourceVisible && targetVisible);
+      
+      const isContextConnection = source.type === 'context' || target.type === 'context';
+
+      // Opacity Calculation
+      let opacity = 0.05; 
+      
+      if (isInFocus) {
+          opacity = isActiveConnection || isHoveredConnection ? 1 : 0.8;
+      } else if (isStructurallyVisible) {
+          opacity = 0.15; 
+      } else if (isContextConnection) {
+          opacity = 0.02; // Very faint for context connections
+      }
+      
+      const time = Date.now();
+      if (isActiveConnection) {
+          const pulse = (Math.sin(time * 0.002) + 1) / 2;
+          const breathingOpacity = 0.6 + pulse * 0.4;
+          ctx.globalAlpha = breathingOpacity;
+      } else {
+          ctx.globalAlpha = opacity;
+      }
+
+      // Color Logic
+      const getRelationColor = (lbl: string) => {
+          if (!lbl) return null;
+          const l = lbl.toLowerCase();
+          if (l.includes('近义') || l.includes('synonym')) return '#4ade80';
+          if (l.includes('反义') || l.includes('antonym')) return '#f87171';
+          if (l.includes('派生') || l.includes('derivative')) return '#a78bfa';
+          if (l.includes('形似') || l.includes('look-alike')) return '#facc15';
+          if (l.includes('搭配') || l.includes('collocation')) return '#60a5fa';
+          if (l.includes('场景') || l.includes('scenario')) return '#22d3ee';
+          if (l.includes('相关') || l.includes('related') || l.includes('关联')) return '#94a3b8';
+          return null;
+      };
+
+      const relationColor = getRelationColor(link.label);
+      
+      ctx.beginPath();
+      ctx.moveTo(source.x, source.y);
+      ctx.lineTo(target.x, target.y);
+      
+      const gradient = ctx.createLinearGradient(source.x, source.y, target.x, target.y);
+      
+      if (relationColor) {
+          gradient.addColorStop(0, relationColor);
+          gradient.addColorStop(1, relationColor);
+      } else {
+          const getColor = (node: any) => {
+               if (currentItem?.nodeId === node.id) return '#ffffff';
+               if (activeNeighborIds.has(node.id)) return '#ffffff'; 
+               if (completedNodeIds.has(node.id)) return '#ec4899'; 
+               if (node.type === 'context') return '#94a3b8'; // Context color
+               return '#64748b'; 
+          };
+          gradient.addColorStop(0, getColor(source));
+          gradient.addColorStop(1, getColor(target));
+      }
+      
+      ctx.strokeStyle = gradient;
+
+      if (isInFocus) {
+          if (isActiveConnection) {
+              const pulse = (Math.sin(time * 0.003) + 1) / 2; 
+              const breathingWidth = 2.5 + pulse * 1.5;
+              ctx.lineWidth = breathingWidth; 
+              ctx.shadowColor = relationColor || '#ffffff'; 
+              ctx.shadowBlur = 20;
+          } else if (isHoveredConnection) {
+              ctx.lineWidth = 2.5; 
+              ctx.shadowColor = relationColor || '#60a5fa';
+              ctx.shadowBlur = 15;
+          }
+      } else {
+          ctx.lineWidth = isContextConnection ? 0.5 : 1; // Thinner for context
+          ctx.shadowBlur = 0;
+      }
+      
+      ctx.stroke();
+      ctx.globalAlpha = 1; // Reset
+  }, [currentItem, hoveredNode, completedNodeIds, activeNeighborIds]);
+
+  const handleLinkHover = useCallback((link: any) => {
+      if (isHoveringCard) {
+          setHoveredLink(null);
+          return;
+      }
+      if (link) {
+          setHoveredLink(link);
+      } else {
+          setHoveredLink(null);
+      }
+  }, [isHoveringCard]);
+
+  const handleNodeHover = useCallback((node: any) => {
+      if (isHoveringCard) {
+          setHoveredNode(null);
+          return;
+      }
+      setHoveredNode(node);
+  }, [isHoveringCard]);
 
   const renderMap = () => (
     <div className="w-full h-full overflow-y-auto p-8 pb-32 relative scroll-smooth">
@@ -1230,8 +2010,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     // Update total
     setSessionStats(prev => ({ ...prev, total: prev.total + 1 }));
 
-    // Call external handler
-    await onRate(currentItem.card, rating);
+    try {
+        // Call external handler
+        await onRate(currentItem.card, rating);
+    } catch (e) {
+        console.error("Failed to save rating", e);
+        // Proceed to remove from queue even if save fails to prevent blocking user
+    }
 
     // Remove from queue (Review cards don't loop in session usually, unless Again?)
     // For now, remove to keep it simple. If Again, FSRS schedules it for <1min, 
@@ -1239,9 +2024,11 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     setQueue(prev => prev.slice(1));
   };
 
-  const handleCardPositionChange = useCallback((point: { x: number; y: number }) => {
+  const handleCardPositionChange = useCallback((data: { point: { x: number; y: number }; transform: { x: number; y: number } }) => {
     if (!graphRef.current) return;
     
+    const { point, transform } = data;
+
     // [MODIFIED] Composition-Aware Pan based on Card Dragging
     // 获取当前焦点锚点 (如果存在当前节点，以此为基准；否则默认为 (0,0))
     const currentNode = graphData?.nodes.find(n => n.id === currentItem?.nodeId);
@@ -1273,6 +2060,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     
     // 仅平滑移动 X 轴，保持 Y 轴和 Zoom 不变，响应拖拽
     graphRef.current.centerAt(targetCenterX, anchorY, 800);
+    
+    // Persist position
+    setCardPosition(transform);
   }, [graphData, currentItem]);
 
   const renderSessionItem = () => {
@@ -1280,7 +2070,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
     // 1. Learn Mode (Flashcard)
     if (currentItem.type === 'learn') {
-        const isReview = currentItem.card.state === State.Review;
+        // [MODIFIED] Strict Mode Logic
+        // If sessionMode is 'review', treat all cards as review (Ghost Mode + FSRS)
+        // If sessionMode is 'new', treat all cards as new (Learning + Know/Forgot)
+        // If 'mixed', rely on card state.
+        const isReview = sessionMode === 'review' ? true : (sessionMode === 'new' ? false : currentItem.card.state === State.Review);
+        
+        const reviewPreviews = isReview ? getReviewPreviews(currentItem.card) : undefined;
 
         // Calculate semantic neighbors for the card
         const neighbors = Array.from(activeNeighborIds).map(id => {
@@ -1294,13 +2090,15 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 <Flashcard 
                     key={`learn-${currentItem.card.id}`}
                     card={currentItem.card}
-                    alwaysShowContent={true}
+                    alwaysShowContent={!isReview}
+                    initialGhostMode={true} // [User Request] Always enable guided input (ghost mode) for both new and review
+                    initialPosition={cardPosition}
                     isEnriching={isEnriching}
                     semanticNeighbors={neighbors}
                     onSemanticNeighborClick={handleSemanticNeighborClick}
                     onSemanticNeighborHover={(word) => setHighlightedNeighborId(word ? (graphData?.nodes.find(n => n.label === word)?.id || null) : null)}
                     onPositionChange={handleCardPositionChange}
-                    onFlip={() => {}}
+                    onFlip={(val) => setIsCardFlipped(typeof val === 'boolean' ? val : true)}
                     onKnow={isReview ? undefined : handleKnow}
                     onForgot={isReview ? undefined : handleLoop}
                     onRate={isReview && onRate ? handleFSRSRate : undefined}
@@ -1340,6 +2138,16 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         return u;
                     }}
                 />
+                
+                {/* FSRS Controls (Review Mode Only) */}
+                {isReview && isCardFlipped && onRate && (
+                     <div className="absolute bottom-0 left-0 right-0 p-4 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+                        <ReviewControls 
+                            onRate={handleFSRSRate} 
+                            previews={reviewPreviews}
+                        />
+                     </div>
+                )}
             </div>
         );
     }
@@ -1347,120 +2155,246 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     // 2. Choice Mode
     if (currentItem.type === 'choice') {
         return (
-            <div className="w-full max-w-xl mx-auto min-h-[500px] flex flex-col items-center justify-center p-8 relative">
-                 <div className="text-center w-full max-w-sm">
-                    <div className="mb-8">
-                        <div className="text-sm text-white/40 mb-2">请选择正确的释义</div>
-                        <h2 className="text-4xl font-bold text-white mb-4">{currentItem.card.word}</h2>
-                        <div className="flex justify-center gap-2">
-                            <span className="text-sm px-2 py-0.5 rounded-full bg-white/10 text-white/60">
-                                {currentItem.card.partOfSpeech}
-                            </span>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); speak(currentItem.card.word); }}
-                                className="p-1 rounded-full bg-white/5 hover:bg-white/10 text-blue-400 transition-colors"
-                            >
-                                <Volume2 className="w-4 h-4" />
-                            </button>
+            <motion.div 
+                drag
+                dragMomentum={false}
+                initial={{ 
+                    x: cardPosition?.x || 0, 
+                    y: cardPosition?.y || 0 
+                }}
+                whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
+                onDragEnd={(_, info) => {
+                    const currentX = (cardPosition?.x || 0) + info.offset.x;
+                    const currentY = (cardPosition?.y || 0) + info.offset.y;
+                    handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
+                }}
+                style={{ x: cardPosition?.x, y: cardPosition?.y }}
+                className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
+            >
+                <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500 hover:border-white/20">
+                     {/* Ambient Light Effects */}
+                    <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
+                    <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
+
+                    <div className="flex flex-col items-center justify-center h-full relative z-10 w-full">
+                        <div className="text-center w-full max-w-sm">
+                            <div className="mb-8">
+                                <div className="text-sm text-white/40 mb-2">请选择正确的释义</div>
+                                <h2 className="text-4xl font-bold text-white mb-4">{currentItem.card.word}</h2>
+                                <div className="flex justify-center gap-2">
+                                    <span className="text-sm px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                                        {currentItem.card.partOfSpeech}
+                                    </span>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); speak(currentItem.card.word); }}
+                                        className="p-1 rounded-full bg-white/5 hover:bg-white/10 text-blue-400 transition-colors"
+                                    >
+                                        <Volume2 className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 w-full">
+                                {choiceOptions.map((option, index) => {
+                                    const isSelected = selectedChoiceId === option.id;
+                                    const isCorrect = option.id === currentItem.card.id;
+                                    
+                                    let statusClass = "bg-black/20 border-white/10 hover:bg-white/5";
+                                    if (choiceResult) {
+                                        if (isCorrect) statusClass = "bg-green-500/20 border-green-500/50 text-green-200";
+                                        else if (isSelected && !isCorrect) statusClass = "bg-red-500/20 border-red-500/50 text-red-200";
+                                        else statusClass = "opacity-50 bg-black/20 border-white/5";
+                                    }
+
+                                    return (
+                                        <button
+                                            key={option.id}
+                                            onClick={() => handleChoiceSelect(option)}
+                                            disabled={!!choiceResult}
+                                            className={cn(
+                                                "relative w-full p-4 rounded-xl border text-left transition-all duration-200 flex items-center gap-3 group",
+                                                statusClass
+                                            )}
+                                        >
+                                            <span className={cn(
+                                                "flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border transition-colors",
+                                                choiceResult && isCorrect ? "border-green-500 bg-green-500 text-black" :
+                                                choiceResult && isSelected && !isCorrect ? "border-red-500 bg-red-500 text-white" :
+                                                "border-white/20 text-white/40 group-hover:border-white/40"
+                                            )}>
+                                                {index + 1}
+                                            </span>
+                                            <span className="flex-1 line-clamp-2 text-sm">
+                                                {option.meaning}
+                                            </span>
+                                            {choiceResult && isCorrect && <Check className="w-5 h-5 text-green-400" />}
+                                            {choiceResult && isSelected && !isCorrect && <X className="w-5 h-5 text-red-400" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
-
-                    <div className="grid grid-cols-1 gap-3 w-full">
-                        {choiceOptions.map((option, index) => {
-                            const isSelected = selectedChoiceId === option.id;
-                            const isCorrect = option.id === currentItem.card.id;
-                            
-                            let statusClass = "bg-black/20 border-white/10 hover:bg-white/5";
-                            if (choiceResult) {
-                                if (isCorrect) statusClass = "bg-green-500/20 border-green-500/50 text-green-200";
-                                else if (isSelected && !isCorrect) statusClass = "bg-red-500/20 border-red-500/50 text-red-200";
-                                else statusClass = "opacity-50 bg-black/20 border-white/5";
-                            }
-
-                            return (
-                                <button
-                                    key={option.id}
-                                    onClick={() => handleChoiceSelect(option)}
-                                    disabled={!!choiceResult}
-                                    className={cn(
-                                        "relative w-full p-4 rounded-xl border text-left transition-all duration-200 flex items-center gap-3 group",
-                                        statusClass
-                                    )}
-                                >
-                                    <span className={cn(
-                                        "flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border transition-colors",
-                                        choiceResult && isCorrect ? "border-green-500 bg-green-500 text-black" :
-                                        choiceResult && isSelected && !isCorrect ? "border-red-500 bg-red-500 text-white" :
-                                        "border-white/20 text-white/40 group-hover:border-white/40"
-                                    )}>
-                                        {index + 1}
-                                    </span>
-                                    <span className="flex-1 line-clamp-2 text-sm">
-                                        {option.meaning}
-                                    </span>
-                                    {choiceResult && isCorrect && <Check className="w-5 h-5 text-green-400" />}
-                                    {choiceResult && isSelected && !isCorrect && <X className="w-5 h-5 text-red-400" />}
-                                </button>
-                            );
-                        })}
-                    </div>
-                 </div>
-            </div>
+                </div>
+            </motion.div>
         );
     }
 
     // 3. Test Mode (Spelling)
     if (currentItem.type === 'test') {
         return (
-            <div className="w-full max-w-xl mx-auto min-h-[500px] flex flex-col items-center justify-center p-8 relative">
-                <div className="text-center w-full max-w-xs">
-                    <div className="mb-8">
-                        <div className="text-sm text-white/40 mb-2">请拼写出该单词</div>
-                        <div className="text-2xl font-bold text-white/90 mb-4 line-clamp-3">
-                            {currentItem.card.meaning || '暂无释义'}
+            <motion.div 
+                drag
+                dragMomentum={false}
+                initial={{ 
+                    x: cardPosition?.x || 0, 
+                    y: cardPosition?.y || 0 
+                }}
+                whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
+                onDragEnd={(_, info) => {
+                    const currentX = (cardPosition?.x || 0) + info.offset.x;
+                    const currentY = (cardPosition?.y || 0) + info.offset.y;
+                    handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
+                }}
+                style={{ x: cardPosition?.x, y: cardPosition?.y }}
+                className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
+            >
+                <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500 hover:border-white/20">
+                     {/* Ambient Light Effects */}
+                    <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
+                    <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
+
+                    <div className="flex flex-col items-center justify-center h-full relative z-10 w-full">
+                        <div className="text-center w-full max-w-xs">
+                            <div className="mb-8">
+                                <div className="text-sm text-white/40 mb-2">请拼写出该单词</div>
+                                <div className="text-2xl font-bold text-white/90 mb-4 line-clamp-3">
+                                    {currentItem.card.meaning || '暂无释义'}
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={() => speak(currentItem.card.word)}
+                                className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mb-8 mx-auto hover:bg-blue-500/20 border border-blue-500/20 transition-all duration-300 group"
+                            >
+                                <Volume2 className="w-8 h-8 text-blue-400 group-hover:scale-110 transition-transform" />
+                            </button>
+
+                            <div className="relative w-full mb-10 min-h-[80px] flex items-center justify-center">
+                                {/* Input Visualization (Slots) - Clean & Liquid */}
+                                <div className="relative z-10 flex flex-wrap justify-center gap-2">
+                                     {currentItem.card.word.split('').map((char, i) => {
+                                         const userChar = inputValue[i];
+                                         const isActive = i === inputValue.length;
+                                         const isFilled = !!userChar;
+                                         
+                                         return (
+                                             <motion.div 
+                                                 key={i}
+                                                 layout
+                                                 initial={false}
+                                                 animate={{
+                                                     scale: isActive ? 1.15 : 1,
+                                                     y: isActive ? -8 : 0,
+                                                     filter: isActive ? 'drop-shadow(0 0 8px rgba(59,130,246,0.5))' : 'none'
+                                                 }}
+                                                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                                                 className={cn(
+                                                     "w-12 h-16 rounded-xl flex items-center justify-center text-3xl font-bold font-mono transition-all duration-300 relative overflow-hidden",
+                                                     "backdrop-blur-md",
+                                                     testResult === 'correct' ? "bg-green-500/20 border-2 border-green-400 text-green-400" :
+                                                     testResult === 'incorrect' ? "bg-red-500/20 border-2 border-red-400 text-red-400" :
+                                                     isActive ? "bg-blue-500/20 border-2 border-blue-400 text-white" :
+                                                     isFilled ? "bg-white/10 border border-white/30 text-white" :
+                                                     "bg-white/5 border border-white/10 text-white/20"
+                                                 )}
+                                             >
+                                                 {userChar || ''}
+                                                 {isActive && (
+                                                     <motion.div 
+                                                         layoutId="cursor"
+                                                         className="absolute bottom-2 w-6 h-1 bg-blue-400 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]"
+                                                         transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                                                     />
+                                                 )}
+                                                 {/* Subtle sheen for glass effect */}
+                                                 <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                                             </motion.div>
+                                         );
+                                     })}
+                                </div>
+
+                                <input
+                                    ref={inputRef}
+                                    type="text"
+                                    value={inputValue}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        // Limit input length to word length (optional, but good for UI)
+                                        if (val.length <= currentItem.card.word.length) {
+                                            setInputValue(val);
+                                        }
+                                        // [User Request]: Auto-submit for Spelling Test is requested again.
+                                        if (val.length === currentItem.card.word.length) {
+                                            // Pass val directly because state update is async
+                                            handleCheckSpelling(val);
+                                        }
+                                    }}
+                                    onKeyDown={(e) => e.key === 'Enter' && !testResult && handleCheckSpelling()}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-text font-mono z-20"
+                                    autoFocus
+                                    autoComplete="off"
+                                    disabled={testResult === 'correct'} 
+                                />
+                                
+                                {testResult === 'incorrect' && (
+                                    <div className="absolute -bottom-16 left-0 right-0 text-center animate-in slide-in-from-top-2 fade-in duration-300">
+                                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/10 border border-red-500/20 text-red-300 text-sm backdrop-blur-md shadow-lg">
+                                            <X className="w-4 h-4" />
+                                            <span>正确答案: <span className="font-bold font-mono tracking-widest ml-1 text-red-200">{currentItem.card.word}</span></span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {testResult === 'correct' ? (
+                                <div className="flex gap-3 w-full animate-in slide-in-from-bottom-4 fade-in duration-300">
+                                    <button
+                                        onClick={handleRetrySpelling}
+                                        className="flex-1 py-3.5 rounded-xl font-bold text-lg bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all duration-300"
+                                    >
+                                        <RotateCcw className="w-5 h-5 mx-auto" />
+                                    </button>
+                                    <button
+                                        onClick={handleNextWord}
+                                        className="flex-[3] py-3.5 rounded-xl font-bold text-lg bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:shadow-[0_0_30px_rgba(34,197,94,0.5)] transition-all duration-300 flex items-center justify-center gap-2 group"
+                                    >
+                                        <span>下一个</span>
+                                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => handleCheckSpelling()}
+                                    disabled={!inputValue.trim()}
+                                    className={cn(
+                                        "w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 relative overflow-hidden group",
+                                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                                        inputValue.trim() 
+                                            ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] hover:scale-[1.02]"
+                                            : "bg-white/10 text-white/40 border border-white/5"
+                                    )}
+                                >
+                                    <span className="relative z-10">提交</span>
+                                    {inputValue.trim() && (
+                                        <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12" />
+                                    )}
+                                </button>
+                            )}
                         </div>
                     </div>
-
-                    <button 
-                        onClick={() => speak(currentItem.card.word)}
-                        className="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center mb-8 mx-auto hover:bg-blue-500/30 transition-colors"
-                    >
-                        <Volume2 className="w-8 h-8 text-blue-400" />
-                    </button>
-
-                    <div className="relative w-full mb-8">
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleCheckSpelling()}
-                            className={cn(
-                                "w-full bg-transparent border-b-2 text-center text-3xl font-mono py-2 focus:outline-none transition-colors",
-                                testResult === 'correct' ? "border-green-500 text-green-400" :
-                                testResult === 'incorrect' ? "border-red-500 text-red-400" :
-                                "border-white/20 text-white focus:border-blue-500"
-                            )}
-                            placeholder="Type here..."
-                            autoFocus
-                            autoComplete="off"
-                        />
-                        {testResult === 'incorrect' && (
-                            <div className="mt-4 text-red-400 animate-in slide-in-from-top-2">
-                                正确答案: <span className="font-bold">{currentItem.card.word}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <button
-                        onClick={handleCheckSpelling}
-                        disabled={!inputValue.trim()}
-                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        提交
-                    </button>
                 </div>
-            </div>
+            </motion.div>
         );
     }
   };
@@ -1491,10 +2425,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                 updateGraphForGroup(group, true); // Force refresh
                             }
                         }}
-                        className="p-2 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition-colors"
+                        className="p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/30 backdrop-blur-md text-white/60 hover:text-white hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all duration-300 group"
                         title="重新生成联系"
                     >
-                        <RotateCcw className="w-4 h-4" />
+                        <RotateCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-700" />
                     </button>
                 )}
 
@@ -1742,241 +2676,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                     linkDirectionalParticleWidth={4}
                     linkDirectionalParticleColor={() => '#e0f2fe'} // [MODIFIED] Light Blue/White particles
-                    nodeCanvasObject={(node: any, ctx, globalScale) => {
-                        // Validate coordinates to prevent crash
-                        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
-
-                        const label = node.label;
-                        
-                        // State Flags
-                        const isCompleted = completedNodeIds.has(node.id);
-                        const isActive = currentItem?.nodeId === node.id;
-                        const isNeighbor = activeNeighborIds.has(node.id);
-                        const isJustLearned = justLearnedNodeId === node.id;
-                        const isHighlighted = highlightedNeighborId === node.id;
-                        const isHovered = hoveredNode === node;
-
-                        // [MODIFIED] Check if this node is a neighbor of the hovered node
-                        // This enables lighting up the "other end" of the connection when hovering
-                        let isHoveredNeighbor = false;
-                        if (hoveredNode && hoveredNode !== node) {
-                            // Check if there is a link between hoveredNode and this node
-                            // Note: Accessing graphData.links in render loop. For small graphs (learning session) this is fine.
-                            isHoveredNeighbor = graphData.links.some((link: any) => {
-                                const sId = typeof link.source === 'object' ? link.source.id : link.source;
-                                const tId = typeof link.target === 'object' ? link.target.id : link.target;
-                                return (sId === hoveredNode.id && tId === node.id) || 
-                                       (sId === node.id && tId === hoveredNode.id);
-                            });
-                        }
-
-                        // [MODIFIED] Extreme Focus Mode
-                        // Only show: Current Item, Active Neighbors (Choices), Hovered Node, Hovered Neighbors, Highlighted Node, Learned Words
-                        // Everything else (Future, Background) is hidden (Ghost Mode)
-                        const isRelevant = isActive || isNeighbor || isHovered || isHoveredNeighbor || isHighlighted || isJustLearned || isCompleted;
-
-                        // 1. Ghost Mode (Hidden Nodes)
-                        if (!isRelevant) {
-                            // Draw tiny faint dot for structure hint
-                            // This ensures they are still "there" for hovering, but visually unobtrusive
-                            const ghostR = 1.5;
-                            ctx.beginPath();
-                            ctx.arc(node.x, node.y, ghostR, 0, 2 * Math.PI, false);
-                            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)'; // Very faint
-                            ctx.fill();
-                            return; // STOP rendering (No text, no glow, no processing cost)
-                        }
-
-                        // [MODIFIED] Dynamic Depth of Field (DoF)
-                        // Background nodes (not focused) recede in size to simulate depth
-                        const isFocused = phase === 'overview' || isActive || isCompleted || isNeighbor || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor;
-                        const dofScale = isFocused ? 1 : 0.6;
-                        
-                        const r = Math.sqrt(node.val || 1) * dofScale;
-
-                        // [MODIFIED] Calculate Neighbor Color based on Relationship
-                        let neighborRelationColor: string | null = null;
-                        if (isNeighbor && currentItem?.nodeId) {
-                            const link = graphData.links.find((l: any) => {
-                                const sId = typeof l.source === 'object' ? l.source.id : l.source;
-                                const tId = typeof l.target === 'object' ? l.target.id : l.target;
-                                return (sId === currentItem.nodeId && tId === node.id) || 
-                                       (sId === node.id && tId === currentItem.nodeId);
-                            });
-                            if (link && link.label) {
-                                 const lbl = link.label.toLowerCase();
-                                 if (lbl.includes('近义') || lbl.includes('synonym')) neighborRelationColor = '#4ade80'; // Green
-                                 else if (lbl.includes('反义') || lbl.includes('antonym')) neighborRelationColor = '#f87171'; // Red
-                                 else if (lbl.includes('派生') || lbl.includes('derivative')) neighborRelationColor = '#a78bfa'; // Purple
-                                 else if (lbl.includes('形似') || lbl.includes('look-alike')) neighborRelationColor = '#facc15'; // Yellow
-                                 else if (lbl.includes('搭配') || lbl.includes('collocation')) neighborRelationColor = '#60a5fa'; // Blue
-                                 else if (lbl.includes('场景') || lbl.includes('scenario')) neighborRelationColor = '#22d3ee'; // Cyan
-                                 else if (lbl.includes('相关') || lbl.includes('related') || lbl.includes('关联')) neighborRelationColor = '#94a3b8'; // Slate (Generic)
-                                 else neighborRelationColor = '#cbd5e1'; // Light Slate (Unknown)
-                            }
-                        }
-                        
-                        // Animation Pulse (Breathing Effect)
-                        const time = Date.now();
-                        const pulse = (Math.sin(time * 0.003) + 1) / 2; // 0 to 1
-                        const breathingScale = 1 + pulse * 0.2; // 1.0 to 1.2
-                        
-                        // "Light Up" Effect Scale
-                        const finalScale = (isJustLearned || isHighlighted) ? breathingScale * 1.5 : breathingScale;
-
-                        // Visibility Logic (Focus Mode)
-                        // Active, Completed, and Neighbors are visible. Others are dimmed.
-                        // [MODIFIED] In Overview phase, everything is visible
-                        const isVisible = isFocused;
-                        const opacity = isVisible ? 1 : 0.1;
-
-                        ctx.save(); // Save context state for alpha and shadow
-                        ctx.globalAlpha = opacity;
-
-                        if (isActive || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor) {
-                            // --- Microsoft Diffuse Light Ball (Active/Highlighted/Hovered Node) ---
-                            // [MODIFIED] Eye-catching Active Node (Pure White for clean look)
-                            // White (Active) vs Yellow (Highlighted) vs Blue (Hovered/Neighbor) vs Emerald (Just Learned)
-                            const baseColor = isActive ? '#ffffff' : (isHighlighted ? '#facc15' : ((isHovered || isHoveredNeighbor) ? '#60a5fa' : '#10b981'));
-                            const glowColor = isActive ? 'rgba(255, 255, 255, 0.5)' : (isHighlighted ? 'rgba(250, 204, 21, 0.5)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.5)' : 'rgba(16, 185, 129, 0.4)'));
-                            
-                            // 1. Outer Halo (Large, diffuse, pulsing)
-                            // [MODIFIED] Slightly reduce halo for neighbors to keep focus on the hovered node
-                            const haloScale = (isHoveredNeighbor) ? 0.7 : 1.0;
-                            const haloRadius = r * 5 * finalScale * haloScale; // Increased size
-                            const haloGradient = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, haloRadius);
-                            haloGradient.addColorStop(0, glowColor);
-                            haloGradient.addColorStop(1, 'rgba(0,0,0,0)');
-                            
-                            ctx.beginPath();
-                            ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI, false);
-                            ctx.fillStyle = haloGradient;
-                            ctx.fill();
-
-                            // 2. Ripple Rings (Animated)
-                            if (isActive || isHighlighted || isHovered) {
-                                const rippleRadius = r * 3 * (1 + (Math.sin(time * 0.002) + 1) * 0.3);
-                                ctx.beginPath();
-                                ctx.arc(node.x, node.y, rippleRadius, 0, 2 * Math.PI, false);
-                                const rippleColor = isActive ? '255, 255, 255' : (isHighlighted ? '250, 204, 21' : '96, 165, 250');
-                                ctx.strokeStyle = `rgba(${rippleColor}, ${0.6 - (Math.sin(time * 0.002) + 1) * 0.3})`; // Fade out
-                                ctx.lineWidth = 1;
-                                ctx.stroke();
-
-                                const rippleRadius2 = r * 2 * (1 + (Math.cos(time * 0.002) + 1) * 0.2);
-                                ctx.beginPath();
-                                ctx.arc(node.x, node.y, rippleRadius2, 0, 2 * Math.PI, false);
-                                ctx.strokeStyle = `rgba(${rippleColor}, ${0.5 - (Math.cos(time * 0.002) + 1) * 0.2})`;
-                                ctx.lineWidth = 0.5;
-                                ctx.stroke();
-                            }
-
-                            // 3. Mid Glow (Soft, bridge)
-                            const glowRadius = r * 3;
-                            const glowGradient = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, glowRadius);
-                            const midGlowColor = isActive ? 'rgba(255, 255, 255, 0.8)' : (isHighlighted ? 'rgba(250, 204, 21, 0.6)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.6)' : 'rgba(52, 211, 153, 0.6)'));
-                            glowGradient.addColorStop(0, midGlowColor); 
-                            glowGradient.addColorStop(1, 'rgba(0,0,0,0)');
-                            
-                            ctx.beginPath();
-                            ctx.arc(node.x, node.y, glowRadius, 0, 2 * Math.PI, false);
-                            ctx.fillStyle = glowGradient;
-                            ctx.fill();
-
-                            // 4. Core Orb (Solid, bright center)
-                            const coreRadius = r * 1.5; // Larger core
-                            const coreGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, coreRadius);
-                            coreGradient.addColorStop(0, '#ffffff');       // Pure White Center
-                            const coreMidColor = isActive ? '#f8fafc' : (isHighlighted ? '#fde047' : ((isHovered || isHoveredNeighbor) ? '#bfdbfe' : '#6ee7b7'));
-                            coreGradient.addColorStop(0.3, coreMidColor);     // White-50 / Yellow-300 / Light Green
-                            coreGradient.addColorStop(0.7, baseColor);     // Base Color
-                            coreGradient.addColorStop(1, 'rgba(0,0,0,0)'); // Soft edge
-                            
-                            ctx.beginPath();
-                            ctx.arc(node.x, node.y, coreRadius, 0, 2 * Math.PI, false);
-                            ctx.fillStyle = coreGradient;
-                            ctx.fill();
-                            
-                        } else {
-                            // --- Standard Rendering for Neighbors/Others ---
-                            
-                            // Color logic
-                            let color = '#94a3b8'; 
-                            if (isNeighbor) {
-                                color = neighborRelationColor || '#ffffff'; // Neighbor White or Relation Color
-                            } else if (isCompleted) {
-                                color = '#ec4899'; // [MODIFIED] Pink for History (was Emerald #10b981)
-                            } else if (node.type === 'root') {
-                                color = '#f472b6'; 
-                            } else if (node.type === 'topic') {
-                                // [MODIFIED] Use Indigo/Blue for standard topic nodes (unlearned)
-                                color = '#6366f1'; 
-                            }
-                            
-                            // Shadow/Glow
-                            if (isNeighbor) {
-                                ctx.shadowColor = neighborRelationColor || 'rgba(255, 255, 255, 0.6)'; 
-                                ctx.shadowBlur = 30; 
-                            } else if (isCompleted) {
-                                ctx.shadowBlur = 20; 
-                                ctx.shadowColor = color;
-                            } else if (phase === 'overview') {
-                                // In overview, give them a subtle glow
-                                ctx.shadowBlur = 10;
-                                ctx.shadowColor = color;
-                            } else {
-                                ctx.shadowBlur = 0;
-                            }
-
-                            // Draw Node
-                            ctx.beginPath();
-                            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
-                            
-                            // Gradient Fill
-                            const gradient = ctx.createRadialGradient(node.x, node.y, r * 0.1, node.x, node.y, r);
-                            gradient.addColorStop(0, '#ffffff'); 
-                            gradient.addColorStop(0.4, color);   
-                            gradient.addColorStop(1, color);     
-                            ctx.fillStyle = gradient;
-                            ctx.fill();
-                            
-                            ctx.shadowBlur = 0; 
-
-                            // Rings
-                            if (isNeighbor) {
-                                ctx.beginPath();
-                                ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
-                                ctx.strokeStyle = neighborRelationColor || 'rgba(255, 255, 255, 0.4)'; 
-                                ctx.lineWidth = 1;
-                                ctx.stroke();
-                            }
-                        }
-
-                        // Draw Label
-                        // [MODIFIED] Only show text for Relevant nodes (which we are currently rendering)
-                        const showLabel = true; // Since we already filtered by isRelevant, we can always show label for visible nodes
-
-                        if (showLabel) {
-                            const fontSize = isActive ? 12 : (node.type === 'root' ? 10 : (node.type === 'topic' ? 8 : 6));
-                            
-                            ctx.font = `${(isCompleted || isActive || isHighlighted) ? 'bold ' : ''}${fontSize}px Sans-Serif`;
-                            ctx.textAlign = 'left';
-                            ctx.textBaseline = 'middle';
-                            
-                            if (isNeighbor || isActive || isJustLearned || isHighlighted) {
-                                ctx.fillStyle = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : '#ffffff'); 
-                                ctx.shadowColor = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : 'rgba(255, 255, 255, 0.6)'); 
-                                ctx.shadowBlur = 4;
-                            } else {
-                                ctx.fillStyle = isCompleted ? '#fff' : 'rgba(255, 255, 255, 0.7)';
-                                ctx.shadowBlur = 0;
-                            }
-                            
-                            ctx.fillText(label, node.x + r + 8, node.y);
-                        }
-                        
-                        ctx.restore(); // Restore globalAlpha
-                    }}
+                    nodeCanvasObject={handleNodeCanvas}
                     nodeLabel="meaning" // Show meaning on hover
                     onNodeHover={(node) => {
                         if (isHoveringCard) {
@@ -2152,6 +2852,78 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     }}
                 />
             )}
+
+            {/* Connection Tooltip (Liquid Glass) */}
+            <AnimatePresence>
+                {hoveredLink && graphRef.current && (
+                    (() => {
+                        // Calculate position
+                        const source = typeof hoveredLink.source === 'object' ? hoveredLink.source : graphData?.nodes.find(n => n.id === hoveredLink.source);
+                        const target = typeof hoveredLink.target === 'object' ? hoveredLink.target : graphData?.nodes.find(n => n.id === hoveredLink.target);
+                        
+                        if (!source || !target || typeof source.x !== 'number' || typeof target.x !== 'number') return null;
+                        
+                        // Check generation status
+                        const linkId = `${source.id}-${target.id}`;
+                        const isGenerating = generatingLinks.has(linkId);
+                        
+                        // Only show if we have an example OR are generating it
+                        if (!hoveredLink.example && !isGenerating) return null;
+
+                        const mx = (source.x + target.x) / 2;
+                        const my = (source.y + target.y) / 2;
+                        const coords = graphRef.current.graph2ScreenCoords(mx, my);
+                        
+                        return (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                                style={{ 
+                                    left: coords.x, 
+                                    top: coords.y 
+                                }}
+                                className="absolute z-30 pointer-events-none transform -translate-x-1/2 -translate-y-full pb-4 max-w-xs"
+                            >
+                                <div className="relative overflow-hidden rounded-xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] p-4">
+                                    {/* Chromatic Aberration Effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent mix-blend-overlay" />
+                                    <div className="absolute -inset-1 bg-gradient-to-r from-transparent via-white/10 to-transparent blur-sm opacity-30 animate-pulse" />
+                                    
+                                    {/* Content */}
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between gap-4 mb-2 text-xs text-white/50 uppercase tracking-wider">
+                                            <span>{hoveredLink.label || 'Connection'}</span>
+                                            {isGenerating ? (
+                                                <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                                            ) : (
+                                                <Sparkles className="w-3 h-3 text-yellow-400" />
+                                            )}
+                                        </div>
+                                        {isGenerating ? (
+                                            <div className="text-sm text-white/70 italic">
+                                                Thinking of a good example...
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <p 
+                                                    className="text-sm text-white leading-relaxed font-medium"
+                                                    dangerouslySetInnerHTML={{ __html: hoveredLink.example.replace(/\*\*/g, '') }} 
+                                                />
+                                                {hoveredLink.example_cn && (
+                                                    <p className="text-xs text-white/60 border-t border-white/10 pt-2 mt-1">
+                                                        {hoveredLink.example_cn.replace(/\*\*/g, '')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </motion.div>
+                        );
+                    })()
+                )}
+            </AnimatePresence>
             
             {mode === 'map' && renderMap()}
          </div>

@@ -1,5 +1,9 @@
-import { addToVocabularyDeck } from './db';
+import { addToVocabularyDeck, createDeck, saveCard } from './db';
 import { EmbeddingService } from './embedding';
+import { createNewWordCard, Rating } from './fsrs';
+import { v4 as uuidv4 } from 'uuid';
+import type { Deck, WordCard } from '@/types';
+import { State } from 'ts-fsrs';
 
 // 100个单词，涵盖不同领域以展示聚类效果
 const WORD_LIST = [
@@ -128,5 +132,60 @@ export async function seedFromLocalJSON(onProgress?: (current: number, total: nu
         console.error('Seed from JSON failed:', error);
         // Fallback to default list
         await seedDatabase(onProgress);
+    }
+}
+
+/**
+ * @description 生成专门的测试卡包，包含新卡片和待复习卡片
+ */
+export async function seedTestDeck(onProgress?: (current: number, total: number, word: string) => void) {
+    const TEST_DECK_ID = 'test-deck-1';
+    const deck: Deck = {
+        id: TEST_DECK_ID,
+        name: '🧪 测试卡包',
+        createdAt: new Date(),
+        theme: 'purple'
+    };
+
+    await createDeck(deck);
+
+    const testWords = [
+        { w: 'apple', m: '苹果', s: State.New },
+        { w: 'banana', m: '香蕉', s: State.New },
+        { w: 'cherry', m: '樱桃', s: State.New },
+        { w: 'date', m: '枣', s: State.New },
+        { w: 'elderberry', m: '接骨木浆果', s: State.New },
+        { w: 'fig', m: '无花果', s: State.Review }, // 待复习
+        { w: 'grape', m: '葡萄', s: State.Review },
+        { w: 'honeydew', m: '蜜瓜', s: State.Review },
+        { w: 'kiwi', m: '猕猴桃', s: State.Review },
+        { w: 'lemon', m: '柠檬', s: State.Review },
+    ];
+
+    const service = EmbeddingService.getInstance();
+    await service.init();
+
+    let current = 0;
+    const total = testWords.length;
+
+    for (const item of testWords) {
+        current++;
+        if (onProgress) onProgress(current, total, item.w);
+
+        const card = createNewWordCard(item.w, item.m, 'noun', TEST_DECK_ID);
+        
+        if (item.s === State.Review) {
+            // 模拟复习状态
+            card.state = State.Review;
+            card.due = new Date(Date.now() - 1000 * 60 * 60 * 24); // 1天前到期
+            card.stability = 1;
+            card.difficulty = 5;
+            card.reps = 1;
+            card.lapses = 0;
+            card.last_review = new Date(Date.now() - 1000 * 60 * 60 * 48); // 2天前上次复习
+        }
+
+        await saveCard(card);
+        await service.updateConnections(item.w);
     }
 }

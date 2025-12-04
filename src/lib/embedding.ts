@@ -6,6 +6,18 @@ import type { WordCard } from '@/types';
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
+export interface EmbeddingConfig {
+  threshold: number;
+  minConnections: number;
+  maxConnections: number;
+}
+
+export const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {
+  threshold: 0.65,
+  minConnections: 1,
+  maxConnections: 20
+};
+
 /**
  * @description 嵌入服务 (Singleton)
  * 负责生成语义向量和计算单词间的连接
@@ -15,8 +27,28 @@ export class EmbeddingService {
   private extractor: any = null;
   private modelName = 'Xenova/all-MiniLM-L6-v2';
   private isInitializing = false;
+  private config: EmbeddingConfig = DEFAULT_EMBEDDING_CONFIG;
 
-  private constructor() {}
+  private constructor() {
+      // Try load config from storage
+      try {
+          const saved = localStorage.getItem('embedding-settings');
+          if (saved) {
+              this.config = { ...DEFAULT_EMBEDDING_CONFIG, ...JSON.parse(saved) };
+          }
+      } catch (e) {
+          console.error('Failed to load embedding config', e);
+      }
+  }
+
+  public updateConfig(newConfig: Partial<EmbeddingConfig>) {
+      this.config = { ...this.config, ...newConfig };
+      localStorage.setItem('embedding-settings', JSON.stringify(this.config));
+  }
+
+  public getConfig(): EmbeddingConfig {
+      return this.config;
+  }
 
   public static getInstance(): EmbeddingService {
     if (!EmbeddingService.instance) {
@@ -148,7 +180,7 @@ export class EmbeddingService {
       // We need to compare each input word against ALL known embeddings (embeddingMap)
       console.log('Calculating connections...');
       const embeddingsArray = Array.from(embeddingMap.entries()).map(([w, v]) => ({ word: w, vector: v }));
-      const THRESHOLD = 0.5;
+      const { threshold, maxConnections } = this.config;
 
       // We can process connections in chunks to yield to event loop
       const chunkSize = 50;
@@ -172,15 +204,15 @@ export class EmbeddingService {
                   // But let's stick to method for clarity unless too slow
                   const sim = this.cosineSimilarity(sourceVec, target.vector);
                   
-                  if (sim >= THRESHOLD) {
+                  if (sim >= threshold) {
                       connections.push({ target: target.word, similarity: sim });
                   }
               }
               
               connections.sort((a, b) => b.similarity - a.similarity);
               
-              // Limit stored connections to top 50 to save space/time
-              const topConnections = connections.slice(0, 50);
+              // Limit stored connections to top N to save space/time
+              const topConnections = connections.slice(0, maxConnections);
               
               await db.put('semantic_connections', { source: sourceWord, connections: topConnections });
           }));
@@ -219,6 +251,60 @@ export class EmbeddingService {
 
     if (normA === 0 || normB === 0) return 0;
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  /**
+   * @description 查找与给定单词组相关的上下文单词（未学习的单词）
+   * @param targetWords 目标单词列表（当前学习组）
+   * @param count 需要返回的上下文单词数量
+   * @param candidates 候选单词列表（所有未学习的单词）
+   */
+  public async findContextWords(targetWords: string[], count: number, candidates: string[]): Promise<string[]> {
+      const uniqueTargets = Array.from(new Set(targetWords.map(w => w.toLowerCase())));
+      const uniqueCandidates = Array.from(new Set(candidates.map(w => w.toLowerCase())));
+      
+      // 1. Get embeddings for targets
+      const targetEmbeddings: number[][] = [];
+      const targetMap = await this.getEmbeddingsMap(uniqueTargets);
+      targetMap.forEach(v => targetEmbeddings.push(v));
+      
+      if (targetEmbeddings.length === 0) return [];
+
+      // 2. Calculate Target Centroid (Average Vector)
+      const centroid = new Array(targetEmbeddings[0].length).fill(0);
+      for (const vec of targetEmbeddings) {
+          for (let i = 0; i < vec.length; i++) {
+              centroid[i] += vec[i];
+          }
+      }
+      // Normalize centroid
+      let norm = 0;
+      for (let i = 0; i < centroid.length; i++) {
+          centroid[i] /= targetEmbeddings.length;
+          norm += centroid[i] * centroid[i];
+      }
+      norm = Math.sqrt(norm);
+      if (norm > 0) {
+          for (let i = 0; i < centroid.length; i++) centroid[i] /= norm;
+      }
+
+      // 3. Score candidates against centroid
+      const scoredCandidates: Array<{ word: string; score: number }> = [];
+      // Use getEmbeddingsMap to efficiently get all candidate vectors
+      // Note: getEmbeddingsMap loads all embeddings from DB, so it's fast
+      const candidateMap = await this.getEmbeddingsMap(uniqueCandidates);
+
+      for (const word of uniqueCandidates) {
+          const vec = candidateMap.get(word);
+          if (vec) {
+              const score = this.cosineSimilarity(centroid, vec);
+              scoredCandidates.push({ word, score });
+          }
+      }
+
+      // 4. Sort and return top N
+      scoredCandidates.sort((a, b) => b.score - a.score);
+      return scoredCandidates.slice(0, count).map(c => c.word);
   }
 
   /**
@@ -371,13 +457,16 @@ export class EmbeddingService {
   /**
    * @description 计算一组单词内部的连接 (实时计算，解决连接缺失问题)
    * @param words 单词列表
-   * @param threshold 相似度阈值 (默认 0.5)
-   * @param minConnections 每个单词的最小连接数 (默认 2，用于消除孤立节点)
+   * @param threshold 相似度阈值 (可选，默认使用全局配置)
+   * @param minConnections 每个单词的最小连接数 (可选，默认使用全局配置)
    */
-  public async computeGroupConnections(words: string[], threshold = 0.5, minConnections = 2): Promise<Array<{ source: string; target: string; similarity: number }>> {
+  public async computeGroupConnections(words: string[], threshold?: number, minConnections?: number): Promise<Array<{ source: string; target: string; similarity: number }>> {
       const db = await getDB();
       const validWords = Array.from(new Set(words.map(w => w.toLowerCase())));
       const wordEmbeddings = new Map<string, number[]>();
+
+      const finalThreshold = threshold ?? this.config.threshold;
+      const finalMinConnections = minConnections ?? this.config.minConnections;
 
       // 1. Get/Generate Embeddings
       for (const word of validWords) {
@@ -433,11 +522,11 @@ export class EmbeddingService {
           neighbors.sort((a, b) => b.similarity - a.similarity);
 
           // 1. Count how many are above threshold
-          const aboveThreshold = neighbors.filter(n => n.similarity >= threshold);
+          const aboveThreshold = neighbors.filter(n => n.similarity >= finalThreshold);
           
           // 2. Determine how many to take: Max(aboveThreshold, minConnections)
           // We limit to neighbors.length obviously
-          const countToTake = Math.min(neighbors.length, Math.max(aboveThreshold.length, minConnections));
+          const countToTake = Math.min(neighbors.length, Math.max(aboveThreshold.length, finalMinConnections));
 
           // 3. Add links
           for (let k = 0; k < countToTake; k++) {
@@ -458,9 +547,10 @@ export class EmbeddingService {
    * 2. 获取所有其他已学单词的向量
    * 3. 计算相似度并存储连接
    */
-  public async updateConnections(word: string, threshold = 0.5) {
+  public async updateConnections(word: string, threshold?: number) {
     const db = await getDB();
     const lowerWord = word.toLowerCase();
+    const finalThreshold = threshold ?? this.config.threshold;
 
     // 1. Check if embedding exists
     let embedding = (await db.get('embeddings', lowerWord))?.vector;
@@ -483,26 +573,29 @@ export class EmbeddingService {
       if (item.word === lowerWord) continue;
 
       const similarity = this.cosineSimilarity(embedding, item.vector);
-      if (similarity >= threshold) {
+      if (similarity >= finalThreshold) {
         connections.push({ target: item.word, similarity });
       }
     }
 
     // Sort by similarity desc
     connections.sort((a, b) => b.similarity - a.similarity);
+    
+    // Limit to maxConnections
+    const topConnections = connections.slice(0, this.config.maxConnections);
 
     // 3. Save connections (bi-directional logic is handled by running this for each word, 
     // but strictly we only update THIS word's outgoing connections here. 
     // Ideally, the graph is undirected, but we store it as directed edges for simplicity.)
-    await db.put('semantic_connections', { source: lowerWord, connections });
+    await db.put('semantic_connections', { source: lowerWord, connections: topConnections });
     
-    console.log(`Updated connections for ${word}: found ${connections.length} links.`);
+    console.log(`Updated connections for ${word}: found ${topConnections.length} links.`);
     
     // Optional: Update reverse connections for strict consistency immediately?
     // For performance, we might skip this and rely on the other word being updated eventually,
     // BUT for a good user experience, we should probably update the reverse links too 
     // so they appear in the other word's network immediately.
-    for (const conn of connections) {
+    for (const conn of topConnections) {
         const targetConnections = (await db.get('semantic_connections', conn.target)) || { source: conn.target, connections: [] };
         
         // Check if link already exists

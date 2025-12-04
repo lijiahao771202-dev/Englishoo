@@ -10,23 +10,25 @@ import { DeckList } from '@/components/DeckList';
 import { DeckDetail } from '@/components/DeckDetail';
 import { createNewWordCard, scheduleReview, Rating, getReviewPreviews } from '@/lib/fsrs';
 import { getDueCards, getAllCards, saveCard, addReviewLog, initDB, getNewCards } from '@/lib/db';
-import { EmbeddingService } from '@/lib/embedding';
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generateReadingMaterial, fetchBasicInfo, generateMindMap, generatePhrases, generateDerivatives, generateRoots, generateSyllables, translateContent } from '@/lib/deepseek';
 import type { WordCard } from '@/types';
 import type { RecordLog } from 'ts-fsrs';
-import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X } from 'lucide-react';
+import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initTTS } from '@/lib/tts';
 import { importTem8Deck } from '@/lib/import-tem8';
+import { seedFromLocalJSON } from '@/lib/seed';
+import { EmbeddingService, type EmbeddingConfig } from '@/lib/embedding';
 import { GlobalSelectionMenu } from '@/components/GlobalSelectionMenu';
 import { SettingsModal, DEFAULT_SETTINGS, type LiquidGlassSettings } from '@/components/SettingsModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import KnowledgeGraph from '@/pages/KnowledgeGraph';
 import GuidedLearningSession from './pages/GuidedLearningSession';
+import ShadowingSession from './pages/ShadowingSession';
 import { DeckClusters } from '@/pages/DeckClusters';
 import { SYSTEM_DECK_GUIDED } from '@/lib/db';
 
-type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 'settings' | 'reading' | 'knowledge-graph' | 'guided-learning' | 'deck-clusters';
+type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 'settings' | 'reading' | 'knowledge-graph' | 'guided-learning' | 'deck-clusters' | 'shadowing';
 
 /**
  * @description 主应用组件 (App)
@@ -93,15 +95,35 @@ function App() {
     localStorage.setItem('glass-settings', JSON.stringify(glassSettings));
   }, [glassSettings]);
 
+  // Save API Key
+  useEffect(() => {
+    localStorage.setItem('deepseek_api_key', apiKey);
+  }, [apiKey]);
+
   const [isImporting, setIsImporting] = useState(false);
+  const [importType, setImportType] = useState<'tem8' | 'test' | null>(null);
   const [importProgress, setImportProgress] = useState<{count: number, total: number} | null>(null);
   const [isDbReady, setIsDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+
+  // Session Mode State
+  const [sessionMode, setSessionMode] = useState<'new' | 'review' | 'mixed'>('mixed');
+
+  // Embedding Config
+  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig>(() => {
+      return EmbeddingService.getInstance().getConfig();
+  });
+
+  const handleEmbeddingConfigChange = (config: EmbeddingConfig) => {
+      setEmbeddingConfig(config);
+      EmbeddingService.getInstance().updateConfig(config);
+  };
 
   const handleImportTem8 = async () => {
     if (!confirm('确定要导入专八词汇吗？可能需要几秒钟时间。')) return;
     
     setIsImporting(true);
+    setImportType('tem8');
     setImportProgress({ count: 0, total: 0 });
     try {
         const { count, deckId } = await importTem8Deck((c, t) => {
@@ -118,6 +140,29 @@ function App() {
         alert('导入失败，请检查控制台日志。');
     } finally {
         setIsImporting(false);
+        setImportType(null);
+        setImportProgress(null);
+    }
+  };
+
+  const handleImportTest = async () => {
+    if (!confirm('确定要导入100个测试单词吗？这将生成关联关系，可能需要几分钟。')) return;
+    
+    setIsImporting(true);
+    setImportType('test');
+    setImportProgress({ count: 0, total: 0 });
+    try {
+        await seedFromLocalJSON((c, t, w) => {
+            setImportProgress({ count: c, total: t });
+        });
+        alert('导入成功！');
+        if (currentDeckId) loadDeckData(currentDeckId);
+    } catch (e) {
+        console.error(e);
+        alert('导入失败，请检查控制台日志。');
+    } finally {
+        setIsImporting(false);
+        setImportType(null);
         setImportProgress(null);
     }
   };
@@ -232,9 +277,22 @@ function App() {
       setView('knowledge-graph');
   };
 
+  const handleOpenShadowing = () => {
+      setView('shadowing');
+  };
+
   const handleStartSession = async (limits: { newLimit: number; reviewLimit: number; newGroupLimit?: number }) => {
       let queue: WordCard[] = [];
       let groups: Array<{ label: string; items: WordCard[] }> = [];
+      
+      // Determine Mode
+      let mode: 'new' | 'review' | 'mixed' = 'mixed';
+      if (limits.reviewLimit > 0 && limits.newLimit === 0 && (!limits.newGroupLimit || limits.newGroupLimit === 0)) {
+          mode = 'review';
+      } else if (limits.reviewLimit === 0 && (limits.newLimit > 0 || (limits.newGroupLimit && limits.newGroupLimit > 0))) {
+          mode = 'new';
+      }
+      setSessionMode(mode);
 
       setIsLoading(true);
 
@@ -280,8 +338,49 @@ function App() {
 
           // 3. Review Words
           if (limits.reviewLimit > 0) {
+              // If review limit is set, WE ONLY DO REVIEW (Strict Separation)
+              // Unless newLimit is also explicitly set > 0 AND we want mixed mode?
+              // User requested STRICT separation: "新学是新学的模式，复习是复习的模式"
+              // So if reviewLimit > 0, we ignore new cards unless we are in a special "Mixed" mode (which we aren't supporting right now based on user feedback)
+              
+              // However, if the user requested BOTH (e.g. via a "Mix" button), we might want to allow it.
+              // But DeckDetail buttons are exclusive.
+              // The issue was that if newLimit was > 0 (default or carry-over?), it might have added new cards.
+              // But wait, limits are passed as arguments.
+              
+              // If DeckDetail calls { newLimit: 0, reviewLimit: N }, then queue is empty before this block.
+              // So why did they mix?
+              // Maybe the "Test Deck" generation created cards that are both?
+              
+              // Let's explicitly RESET queue if reviewLimit is the *primary* intent and queue has items?
+              // No, let's just trust the limits. 
+              // If limits.newLimit is 0, queue is empty.
+              
               const reviewQueue = dueCards.slice(0, limits.reviewLimit);
-              queue = [...queue, ...reviewQueue];
+              // If queue already has items (from new cards), this merges them.
+              // If we want strict separation, we should ensure we don't merge if we are in "Review Mode".
+              
+              if (queue.length > 0 && limits.newLimit > 0) {
+                  // This is a mixed session. User hates this.
+                  // But if I requested mixed, I should get mixed.
+                  // The problem is likely that DeckDetail might be passing something I don't expect, 
+                  // OR the user generated a test deck where 'dueCards' and 'newCards' overlap? (Impossible by definition of state).
+                  
+                  // Let's add a check: if we are doing review, maybe we prioritize review?
+                  // But strictly speaking, if I ask for 20 new and 20 review, I get 40 mixed.
+                  
+                  // To fix the user's complaint, I will ensure that when "Start Review" is clicked (which sends newLimit: 0), 
+                  // we definitely only get review cards.
+                  // And when "Start New" is clicked (reviewLimit: 0), we only get new cards.
+                  
+                  // The code ALREADY does this if limits are correct.
+                  // I will add logging to debug or just enforce "One Mode at a Time" if implicit.
+                  
+                  // Actually, I will just append.
+                  queue = [...queue, ...reviewQueue];
+              } else {
+                  queue = reviewQueue;
+              }
           }
 
           if (queue.length === 0) {
@@ -711,6 +810,10 @@ function App() {
         settings={glassSettings}
         onSettingsChange={setGlassSettings}
         onRestoreDefaults={() => setGlassSettings(DEFAULT_SETTINGS)}
+        embeddingConfig={embeddingConfig}
+        onEmbeddingConfigChange={handleEmbeddingConfigChange}
+        apiKey={apiKey}
+        onApiKeyChange={setApiKey}
       />
 
       <GlobalSelectionMenu />
@@ -725,7 +828,7 @@ function App() {
             </h1>
         </div>
        
-        <button onClick={() => setView('settings')} className="p-2 rounded-full hover:bg-white/10">
+        <button onClick={() => setIsGlassSettingsOpen(true)} className="p-2 rounded-full hover:bg-white/10">
           <SettingsIcon className="w-6 h-6" />
         </button>
       </header>
@@ -744,6 +847,7 @@ function App() {
                     <DeckList 
                         onSelectDeck={handleSelectDeck} 
                         onOpenKnowledgeGraph={handleOpenKnowledgeGraph}
+                        onOpenShadowing={handleOpenShadowing}
                     />
                 </motion.div>
             )}
@@ -831,6 +935,23 @@ function App() {
                         onRate={handleLearnRate}
                         sessionGroups={sessionGroups}
                         onUpdateCard={handleUpdateCard}
+                        sessionMode={sessionMode}
+                    />
+                </motion.div>
+            )}
+
+            {view === 'shadowing' && (
+                <motion.div
+                    key="shadowing"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.05 }}
+                    transition={{ duration: 0.3 }}
+                    className="fixed inset-0 z-50 bg-slate-950 overflow-hidden"
+                >
+                    <ShadowingSession 
+                        onBack={() => setView('decks')} 
+                        apiKey={apiKey}
                     />
                 </motion.div>
             )}
@@ -1065,14 +1186,14 @@ function App() {
                                 disabled={isImporting}
                                 className="w-full glass-button py-3 font-semibold flex items-center justify-center gap-2 disabled:opacity-50 relative overflow-hidden"
                             >
-                                {isImporting && importProgress && importProgress.total > 0 && (
+                                {isImporting && importType === 'tem8' && importProgress && importProgress.total > 0 && (
                                     <div 
                                         className="absolute left-0 top-0 bottom-0 bg-white/10 transition-all duration-300"
                                         style={{ width: `${(importProgress.count / importProgress.total) * 100}%` }}
                                     />
                                 )}
                                 <div className="relative z-10 flex items-center gap-2">
-                                    {isImporting ? (
+                                    {isImporting && importType === 'tem8' ? (
                                         <>
                                             <Loader2 className="w-4 h-4 animate-spin" />
                                             {importProgress ? `导入中 ${importProgress.count}/${importProgress.total}` : '导入中...'}
@@ -1081,6 +1202,32 @@ function App() {
                                         <>
                                             <Upload className="w-4 h-4" />
                                             导入专八核心词汇 (Level8)
+                                        </>
+                                    )}
+                                </div>
+                            </button>
+
+                            <button 
+                                onClick={handleImportTest}
+                                disabled={isImporting}
+                                className="w-full glass-button py-3 font-semibold flex items-center justify-center gap-2 disabled:opacity-50 relative overflow-hidden"
+                            >
+                                {isImporting && importType === 'test' && importProgress && importProgress.total > 0 && (
+                                    <div 
+                                        className="absolute left-0 top-0 bottom-0 bg-white/10 transition-all duration-300"
+                                        style={{ width: `${(importProgress.count / importProgress.total) * 100}%` }}
+                                    />
+                                )}
+                                <div className="relative z-10 flex items-center gap-2">
+                                    {isImporting && importType === 'test' ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            {importProgress ? `导入中 ${importProgress.count}/${importProgress.total}` : '导入中...'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Database className="w-4 h-4" />
+                                            导入100测试词 (Level 8)
                                         </>
                                     )}
                                 </div>

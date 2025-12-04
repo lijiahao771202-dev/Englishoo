@@ -29,17 +29,36 @@ interface MyDB extends DBSchema {
   // v3 新增: 存储单词间的语义连接
   semantic_connections: {
     key: string; // source word
-    value: { source: string; connections: Array<{ target: string; similarity: number; label?: string }> };
+    value: { source: string; connections: Array<{ target: string; similarity: number; label?: string; example?: string; example_cn?: string }> };
   };
   // v5 新增: 缓存卡包的语义聚类结果
   deck_clusters: {
     key: string; // deckId
     value: { deckId: string; clusters: any[]; updatedAt: number; totalDeckSize?: number };
   };
+  // v6 新增: 缓存分组学习的图谱结构
+  group_graphs: {
+    key: string; // cacheKey (hash of words)
+    value: { 
+      id: string; 
+      nodes: any[]; 
+      links: any[]; 
+      timestamp: number;
+    };
+  };
+  // v7 新增: 缓存 AI 生成的单词关联数据 (用于复习模式)
+  ai_graph_cache: {
+    key: string; // word
+    value: {
+      word: string;
+      relatedItems: Array<{ word: string; meaning: string; relation: string }>;
+      timestamp: number;
+    };
+  };
 }
 
 const DB_NAME = 'englishoo-db';
-const DB_VERSION = 5; // Incremented version to 5 to add deck_clusters cache
+const DB_VERSION = 7; // Incremented version to 7 to add ai_graph_cache
 
 let dbPromise: Promise<IDBPDatabase<MyDB>>;
 
@@ -97,6 +116,20 @@ export function getDB() {
         if (oldVersion < 5) {
             if (!db.objectStoreNames.contains('deck_clusters')) {
                 db.createObjectStore('deck_clusters', { keyPath: 'deckId' });
+            }
+        }
+
+        // v6: Create Group Graphs Cache Store
+        if (oldVersion < 6) {
+            if (!db.objectStoreNames.contains('group_graphs')) {
+                db.createObjectStore('group_graphs', { keyPath: 'id' });
+            }
+        }
+
+        // v7: Create AI Graph Cache Store
+        if (oldVersion < 7) {
+            if (!db.objectStoreNames.contains('ai_graph_cache')) {
+                db.createObjectStore('ai_graph_cache', { keyPath: 'word' });
             }
         }
     },
@@ -363,7 +396,39 @@ export async function getSemanticConnections(source: string) {
 /**
  * @description 保存语义连接
  */
-export async function saveSemanticConnections(data: { source: string; connections: Array<{ target: string; similarity: number; label?: string }> }) {
+export async function saveSemanticConnections(data: { source: string; connections: Array<{ target: string; similarity: number; label?: string; example?: string }> }) {
     const db = await getDB();
     return db.put('semantic_connections', data);
+}
+
+/**
+ * @description 获取分组图谱缓存
+ */
+export async function getGroupGraphCache(cacheKey: string) {
+    const db = await getDB();
+    return db.get('group_graphs', cacheKey);
+}
+
+/**
+ * @description 保存分组图谱缓存
+ */
+export async function saveGroupGraphCache(data: { id: string; nodes: any[]; links: any[]; timestamp: number }) {
+    const db = await getDB();
+    return db.put('group_graphs', data);
+}
+
+/**
+ * @description 获取 AI 生成的关联词缓存
+ */
+export async function getAIGraphCache(word: string) {
+    const db = await getDB();
+    return db.get('ai_graph_cache', word);
+}
+
+/**
+ * @description 保存 AI 生成的关联词缓存
+ */
+export async function saveAIGraphCache(data: { word: string; relatedItems: Array<{ word: string; meaning: string; relation: string }>; timestamp: number }) {
+    const db = await getDB();
+    return db.put('ai_graph_cache', data);
 }

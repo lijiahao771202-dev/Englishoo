@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = 'https://api.deepseek.com/chat/completions';
+// Use local proxy to avoid CORS issues
+const API_URL = '/api/deepseek/chat/completions';
 
 /**
  * @description Helper to clean JSON string from Markdown code blocks
@@ -56,6 +57,68 @@ export interface ScenarioMindMap {
 /**
  * @description 调用 DeepSeek API 丰富单词信息 (包含自动生成释义)
  */
+export interface ShadowingStory {
+  title: string;
+  sentences: Array<{
+    text: string;
+    phonetics: string;
+    translation: string;
+  }>;
+}
+
+/**
+ * @description 生成影子跟读故事 (包含音标)
+ */
+export async function generateShadowingStory(
+    mode: 'scenario' | 'learned',
+    input: string | string[],
+    apiKey: string
+): Promise<ShadowingStory> {
+    if (!apiKey) throw new Error('API Key is missing');
+
+    const isScenario = mode === 'scenario';
+    const context = isScenario 
+        ? `Based on the scenario: "${input}"` 
+        : `Using the following vocabulary words: ${(input as string[]).join(', ')}`;
+
+    const prompt = `
+      You are an expert English teacher creating a shadowing practice story.
+      ${context}
+      
+      Please create a short, engaging story (5-8 sentences) suitable for intermediate learners.
+      For each sentence, provide:
+      1. The English text.
+      2. The IPA phonetics (International Phonetic Alphabet) for the whole sentence.
+      3. The Chinese translation.
+
+      Return strictly in JSON format:
+      {
+        "title": "Story Title",
+        "sentences": [
+          { "text": "Sentence one.", "phonetics": "/ˈsɛntəns wʌn/", "translation": "句子一。" },
+          ...
+        ]
+      }
+    `;
+
+    try {
+      const response = await axios.post(API_URL, {
+        model: "deepseek-chat",
+        messages: [
+            { role: "system", content: "You are a helpful assistant that outputs JSON." }, 
+            { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+      
+      const content = cleanJson(response.data.choices[0].message.content);
+      return JSON.parse(content);
+    } catch (error) {
+      console.error('DeepSeek API Error:', error);
+      throw error;
+    }
+}
+
 export async function enrichWord(word: string, apiKey: string): Promise<EnrichedData> {
   if (!apiKey) {
     throw new Error('API Key is missing');
@@ -255,28 +318,28 @@ export async function generateMeaning(word: string, apiKey: string): Promise<{ m
 }
 
 /**
- * @description 生成单词对之间的关系标签
+ * @description 仅生成单词对之间的关系标签（轻量级，不生成例句）
  */
-export async function generateEdgeLabels(
+export async function generateEdgeLabelsOnly(
   pairs: { source: string; target: string }[],
   apiKey: string
 ): Promise<Array<{ source: string; target: string; label: string }>> {
   if (!pairs.length) return [];
   
   // Limit batch size to avoid huge prompts
-  if (pairs.length > 50) {
-      const chunk1 = pairs.slice(0, 50);
-      const chunk2 = pairs.slice(50);
-      const res1 = await generateEdgeLabels(chunk1, apiKey);
-      const res2 = await generateEdgeLabels(chunk2, apiKey);
+  if (pairs.length > 100) { // Can handle more since response is smaller
+      const chunk1 = pairs.slice(0, 100);
+      const chunk2 = pairs.slice(100);
+      const res1 = await generateEdgeLabelsOnly(chunk1, apiKey);
+      const res2 = await generateEdgeLabelsOnly(chunk2, apiKey);
       return [...res1, ...res2];
   }
 
   const prompt = `
     Analyze the semantic relationship between the following word pairs.
-    For each pair, provide a precise relationship label in CHINESE.
+    For each pair, provide ONLY a precise relationship label in CHINESE.
     
-    Allowed Relationship Types (examples):
+    Allowed Relationship Types:
     - "同义" (Synonym)
     - "反义" (Antonym)
     - "近义" (Near Synonym)
@@ -291,13 +354,13 @@ export async function generateEdgeLabels(
     Constraints:
     1. AVOID using "相关" (Related) if a more specific relationship exists.
     2. Keep labels concise (under 6 Chinese characters).
-    3. If the words are completely unrelated (unlikely in this context), use "关联".
+    3. If the words are completely unrelated, use "关联".
     
     Pairs:
     ${pairs.map((p, i) => `${i + 1}. ${p.source} - ${p.target}`).join('\n')}
     
-    Return a JSON object with a "labels" array containing strings, corresponding to the order of input pairs.
-    Example: { "labels": ["同义", "反义", "搭配"] }
+    Return a JSON object with an "items" array containing ONLY the "label" string.
+    Example: { "items": [{ "label": "同义" }, { "label": "反义" }] }
   `;
 
   try {
@@ -319,18 +382,167 @@ export async function generateEdgeLabels(
       }
     );
 
-    const result = JSON.parse(response.data.choices[0].message.content);
-    const labels = result.labels || [];
+    const content = cleanJson(response.data.choices[0].message.content);
+    const result = JSON.parse(content);
+    const items = result.items || [];
     
     return pairs.map((p, i) => ({
         source: p.source,
         target: p.target,
-        label: labels[i] || '相关'
+        label: items[i]?.label || '相关'
+    }));
+  } catch (error) {
+    console.error('DeepSeek Edge Label Only Error:', error);
+    return pairs.map(p => ({ ...p, label: '相关' }));
+  }
+}
+
+/**
+ * @description 生成单词对之间的关系标签及例句
+ */
+export async function generateEdgeLabels(
+  pairs: { source: string; target: string }[],
+  apiKey: string
+): Promise<Array<{ source: string; target: string; label: string; example?: string; example_cn?: string }>> {
+  if (!pairs.length) return [];
+  
+  // Limit batch size to avoid huge prompts
+  if (pairs.length > 50) {
+      const chunk1 = pairs.slice(0, 50);
+      const chunk2 = pairs.slice(50);
+      const res1 = await generateEdgeLabels(chunk1, apiKey);
+      const res2 = await generateEdgeLabels(chunk2, apiKey);
+      return [...res1, ...res2];
+  }
+
+  const prompt = `
+    Analyze the semantic relationship between the following word pairs.
+    For each pair, provide:
+    1. A precise relationship label in CHINESE.
+    2. A short example sentence (English) containing BOTH words to illustrate their connection.
+    3. A Chinese translation of the example sentence.
+    
+    Allowed Relationship Types (examples):
+    - "同义" (Synonym)
+    - "反义" (Antonym)
+    - "近义" (Near Synonym)
+    - "包含" (Hyponym/Hypernym)
+    - "组成" (Part-whole)
+    - "搭配" (Collocation)
+    - "形似" (Look-alike)
+    - "因果" (Cause-effect)
+    - "派生" (Derivative)
+    - "场景" (Scenario context)
+    
+    Constraints:
+    1. AVOID using "相关" (Related) if a more specific relationship exists.
+    2. Keep labels concise (under 6 Chinese characters).
+    3. If the words are completely unrelated, use "关联".
+    4. **Highlight both words** in the example sentence using <b> tags.
+    
+    Pairs:
+    ${pairs.map((p, i) => `${i + 1}. ${p.source} - ${p.target}`).join('\n')}
+    
+    Return a JSON object with an "items" array containing objects with "label", "example", and "example_cn".
+    Example: { "items": [{ "label": "同义", "example": "The <b>start</b> was good, but the <b>begin</b>ning was better.", "example_cn": "开始很好，但开端更好。" }] }
+  `;
+
+  try {
+    const response = await axios.post(
+      API_URL,
+      {
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: "You are a helpful assistant that outputs JSON." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    const result = JSON.parse(content);
+    const items = result.items || [];
+    
+    return pairs.map((p, i) => ({
+        source: p.source,
+        target: p.target,
+        label: items[i]?.label || '相关',
+        example: items[i]?.example || '',
+        example_cn: items[i]?.example_cn || ''
     }));
   } catch (error) {
     console.error('DeepSeek Edge Label Error:', error);
     // Fallback to generic label on error
     return pairs.map(p => ({ ...p, label: '相关' }));
+  }
+}
+
+export interface RelatedWord {
+  word: string;
+  meaning: string;
+  relation: string;
+}
+
+/**
+ * @description 生成单词的强关联词 (5-6个)，用于复习模式的知识地图
+ */
+export async function generateRelatedWords(word: string, apiKey: string): Promise<RelatedWord[]> {
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
+    Generate 5-6 English words strongly related to "${word}".
+    
+    For each word, provide:
+    1. The word itself.
+    2. A concise Chinese meaning (max 10 chars).
+    3. The relationship type (e.g., Synonym, Antonym, Collocation, Context, Look-alike, Part-of-speech derivative).
+    
+    Constraints:
+    - The words should be suitable for English learners.
+    - Do not include the target word itself.
+    - Ensure diversity in relationships if possible (not just all synonyms).
+    
+    Return strictly in JSON format:
+    {
+      "items": [
+        { "word": "...", "meaning": "...", "relation": "..." },
+        ...
+      ]
+    }
+  `;
+
+  try {
+    const response = await axios.post(
+      API_URL,
+      {
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: "You are a helpful assistant that outputs JSON." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    const result = JSON.parse(content);
+    return result.items || [];
+  } catch (error) {
+    console.error('DeepSeek Related Words Error:', error);
+    return [];
   }
 }
 
@@ -378,15 +590,15 @@ export async function generateBridgingExample(
       
       Requirements:
       1. The sentence should clearly demonstrate the relationship (contrast, similarity, cause-effect, etc.).
-      2. Highlight both words in the sentence using <b> tags.
+      2. Highlight both words in the sentence using <span style="color: #fde047; font-weight: bold;">...</span> tags.
       3. Provide a natural Chinese translation.
       
       Example for "Ambiguous" (target) and "Clear" (antonym):
-      "His answer was <b>ambiguous</b>, not <b>clear</b> at all."
+      "His answer was <span style="color: #fde047; font-weight: bold;">ambiguous</span>, not <span style="color: #fde047; font-weight: bold;">clear</span> at all."
       
       Return strictly in JSON format:
       {
-        "example": "Sentence with <b>tags</b>...",
+        "example": "Sentence with tags...",
         "exampleMeaning": "Chinese translation..."
       }
     `;
