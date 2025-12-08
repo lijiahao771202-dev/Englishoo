@@ -70,18 +70,18 @@ export interface ShadowingStory {
  * @description 生成影子跟读故事 (包含音标)
  */
 export async function generateShadowingStory(
-    mode: 'scenario' | 'learned',
-    input: string | string[],
-    apiKey: string
+  mode: 'scenario' | 'learned',
+  input: string | string[],
+  apiKey: string
 ): Promise<ShadowingStory> {
-    if (!apiKey) throw new Error('API Key is missing');
+  if (!apiKey) throw new Error('API Key is missing');
 
-    const isScenario = mode === 'scenario';
-    const context = isScenario 
-        ? `Based on the scenario: "${input}"` 
-        : `Using the following vocabulary words: ${(input as string[]).join(', ')}`;
+  const isScenario = mode === 'scenario';
+  const context = isScenario
+    ? `Based on the scenario: "${input}"`
+    : `Using the following vocabulary words: ${(input as string[]).join(', ')}`;
 
-    const prompt = `
+  const prompt = `
       You are an expert English teacher creating a shadowing practice story.
       ${context}
       
@@ -101,22 +101,22 @@ export async function generateShadowingStory(
       }
     `;
 
-    try {
-      const response = await axios.post(API_URL, {
-        model: "deepseek-chat",
-        messages: [
-            { role: "system", content: "You are a helpful assistant that outputs JSON." }, 
-            { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" }
-      }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-      
-      const content = cleanJson(response.data.choices[0].message.content);
-      return JSON.parse(content);
-    } catch (error) {
-      console.error('DeepSeek API Error:', error);
-      throw error;
-    }
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: "You are a helpful assistant that outputs JSON." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    return JSON.parse(content);
+  } catch (error) {
+    console.error('DeepSeek API Error:', error);
+    throw error;
+  }
 }
 
 export async function enrichWord(word: string, apiKey: string): Promise<EnrichedData> {
@@ -174,7 +174,7 @@ export async function enrichWord(word: string, apiKey: string): Promise<Enriched
         }
       }
     );
-    
+
     const content = cleanJson(response.data.choices[0].message.content);
     return JSON.parse(content);
   } catch (error) {
@@ -233,7 +233,7 @@ export async function fetchBasicInfo(word: string, apiKey: string): Promise<{ me
       "partOfSpeech": "string"
     }
   `;
-  
+
   try {
     const response = await axios.post(
       API_URL,
@@ -252,7 +252,7 @@ export async function fetchBasicInfo(word: string, apiKey: string): Promise<{ me
         }
       }
     );
-    
+
     const content = cleanJson(response.data.choices[0].message.content);
     return JSON.parse(content);
   } catch (error) {
@@ -289,7 +289,7 @@ export async function generateMeaning(word: string, apiKey: string): Promise<{ m
       "partOfSpeech": "string"
     }
   `;
-  
+
   try {
     const response = await axios.post(
       API_URL,
@@ -308,7 +308,7 @@ export async function generateMeaning(word: string, apiKey: string): Promise<{ m
         }
       }
     );
-    
+
     const content = cleanJson(response.data.choices[0].message.content);
     return JSON.parse(content);
   } catch (error) {
@@ -325,14 +325,14 @@ export async function generateEdgeLabelsOnly(
   apiKey: string
 ): Promise<Array<{ source: string; target: string; label: string }>> {
   if (!pairs.length) return [];
-  
+
   // Limit batch size to avoid huge prompts
   if (pairs.length > 100) { // Can handle more since response is smaller
-      const chunk1 = pairs.slice(0, 100);
-      const chunk2 = pairs.slice(100);
-      const res1 = await generateEdgeLabelsOnly(chunk1, apiKey);
-      const res2 = await generateEdgeLabelsOnly(chunk2, apiKey);
-      return [...res1, ...res2];
+    const chunk1 = pairs.slice(0, 100);
+    const chunk2 = pairs.slice(100);
+    const res1 = await generateEdgeLabelsOnly(chunk1, apiKey);
+    const res2 = await generateEdgeLabelsOnly(chunk2, apiKey);
+    return [...res1, ...res2];
   }
 
   const prompt = `
@@ -385,11 +385,11 @@ export async function generateEdgeLabelsOnly(
     const content = cleanJson(response.data.choices[0].message.content);
     const result = JSON.parse(content);
     const items = result.items || [];
-    
+
     return pairs.map((p, i) => ({
-        source: p.source,
-        target: p.target,
-        label: items[i]?.label || '相关'
+      source: p.source,
+      target: p.target,
+      label: items[i]?.label || '相关'
     }));
   } catch (error) {
     console.error('DeepSeek Edge Label Only Error:', error);
@@ -405,14 +405,14 @@ export async function generateEdgeLabels(
   apiKey: string
 ): Promise<Array<{ source: string; target: string; label: string; example?: string; example_cn?: string }>> {
   if (!pairs.length) return [];
-  
+
   // Limit batch size to avoid huge prompts
   if (pairs.length > 50) {
-      const chunk1 = pairs.slice(0, 50);
-      const chunk2 = pairs.slice(50);
-      const res1 = await generateEdgeLabels(chunk1, apiKey);
-      const res2 = await generateEdgeLabels(chunk2, apiKey);
-      return [...res1, ...res2];
+    const chunk1 = pairs.slice(0, 50);
+    const chunk2 = pairs.slice(50);
+    const res1 = await generateEdgeLabels(chunk1, apiKey);
+    const res2 = await generateEdgeLabels(chunk2, apiKey);
+    return [...res1, ...res2];
   }
 
   const prompt = `
@@ -469,13 +469,13 @@ export async function generateEdgeLabels(
     const content = cleanJson(response.data.choices[0].message.content);
     const result = JSON.parse(content);
     const items = result.items || [];
-    
+
     return pairs.map((p, i) => ({
-        source: p.source,
-        target: p.target,
-        label: items[i]?.label || '相关',
-        example: items[i]?.example || '',
-        example_cn: items[i]?.example_cn || ''
+      source: p.source,
+      target: p.target,
+      label: items[i]?.label || '相关',
+      example: items[i]?.example || '',
+      example_cn: items[i]?.example_cn || ''
     }));
   } catch (error) {
     console.error('DeepSeek Edge Label Error:', error);
@@ -550,23 +550,23 @@ export async function generateRelatedWords(word: string, apiKey: string): Promis
  * @description 仅生成例句
  */
 export async function generateExample(word: string, apiKey: string): Promise<{ example: string; exampleMeaning: string }> {
-    if (!apiKey) throw new Error('API Key is missing');
-    
-    const prompt = `Please provide a clear, simple example sentence for the English word "${word}" and its Chinese translation. Return strictly in JSON format: { "example": "...", "exampleMeaning": "..." }`;
-    
-    try {
-        const response = await axios.post(API_URL, {
-            model: "deepseek-chat",
-            messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-        const content = cleanJson(response.data.choices[0].message.content);
-        const data = JSON.parse(content);
-        return { example: data.example, exampleMeaning: data.exampleMeaning };
-    } catch (error) {
-        console.error('DeepSeek API Error:', error);
-        throw error;
-    }
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `Please provide a clear, simple example sentence for the English word "${word}" and its Chinese translation. Return strictly in JSON format: { "example": "...", "exampleMeaning": "..." }`;
+
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+    const content = cleanJson(response.data.choices[0].message.content);
+    const data = JSON.parse(content);
+    return { example: data.example, exampleMeaning: data.exampleMeaning };
+  } catch (error) {
+    console.error('DeepSeek API Error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -574,14 +574,14 @@ export async function generateExample(word: string, apiKey: string): Promise<{ e
  * 生成包含两个关联词的联合例句
  */
 export async function generateBridgingExample(
-    word: string, 
-    relatedWord: string, 
-    relationType: string, // e.g. "synonym", "antonym", "related"
-    apiKey: string
+  word: string,
+  relatedWord: string,
+  relationType: string, // e.g. "synonym", "antonym", "related"
+  apiKey: string
 ): Promise<{ example: string; exampleMeaning: string }> {
-    if (!apiKey) throw new Error('API Key is missing');
-    
-    const prompt = `
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
       Create a "Contextual Bridging Sentence" that naturally contains BOTH of the following words:
       1. Target Word: "${word}"
       2. Related Word: "${relatedWord}"
@@ -602,30 +602,30 @@ export async function generateBridgingExample(
         "exampleMeaning": "Chinese translation..."
       }
     `;
-    
-    try {
-        const response = await axios.post(API_URL, {
-            model: "deepseek-chat",
-            messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-        
-        const content = cleanJson(response.data.choices[0].message.content);
-        const data = JSON.parse(content);
-        return { example: data.example, exampleMeaning: data.exampleMeaning };
-    } catch (error) {
-        console.error('DeepSeek API Error:', error);
-        throw error;
-    }
+
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    const data = JSON.parse(content);
+    return { example: data.example, exampleMeaning: data.exampleMeaning };
+  } catch (error) {
+    console.error('DeepSeek API Error:', error);
+    throw error;
+  }
 }
 
 /**
  * @description 仅生成助记
  */
 export async function generateMnemonic(word: string, apiKey: string): Promise<string> {
-    if (!apiKey) throw new Error('API Key is missing');
-    
-    const prompt = `
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
       Please provide 3 distinct and high-quality Chinese mnemonic methods (记忆法) to help remember the English word "${word}".
       
       Requirements:
@@ -658,22 +658,22 @@ export async function generateMnemonic(word: string, apiKey: string): Promise<st
         ]
       }
     `;
-    
-    try {
-        const response = await axios.post(API_URL, {
-            model: "deepseek-chat",
-            messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-        
-        const content = cleanJson(response.data.choices[0].message.content);
-        const data = JSON.parse(content);
-        // Ensure we return a stringified JSON array for compatibility, but structured
-        return JSON.stringify(data.mnemonics || []);
-    } catch (error) {
-        console.error('DeepSeek API Error:', error);
-        throw error;
-    }
+
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    const data = JSON.parse(content);
+    // Ensure we return a stringified JSON array for compatibility, but structured
+    return JSON.stringify(data.mnemonics || []);
+  } catch (error) {
+    console.error('DeepSeek API Error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -728,9 +728,9 @@ export async function generateMindMap(word: string, apiKey: string): Promise<Enr
 
   try {
     const response = await axios.post(API_URL, {
-        model: "deepseek-chat",
-        messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-        response_format: { type: "json_object" }
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
     }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
     const content = cleanJson(response.data.choices[0].message.content);
     return JSON.parse(content).mindMap;
@@ -744,9 +744,9 @@ export async function generateMindMap(word: string, apiKey: string): Promise<Enr
  * @description 生成阅读练习文章
  */
 export async function generateReadingMaterial(words: string[], apiKey: string): Promise<{ title: string; content: string; translation: string }> {
-    if (!apiKey) throw new Error('API Key is missing');
-    
-    const prompt = `
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
       Please write a short, engaging story or article (approx. 150-200 words) that naturally incorporates the following English words: ${words.join(', ')}.
       
       Requirements:
@@ -762,19 +762,19 @@ export async function generateReadingMaterial(words: string[], apiKey: string): 
         "translation": "Chinese translation..."
       }
     `;
-    
-    try {
-        const response = await axios.post(API_URL, {
-            model: "deepseek-chat",
-            messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-        const content = cleanJson(response.data.choices[0].message.content);
-        return JSON.parse(content);
-    } catch (error) {
-        console.error('DeepSeek API Error:', error);
-        throw error;
-    }
+
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+    const content = cleanJson(response.data.choices[0].message.content);
+    return JSON.parse(content);
+  } catch (error) {
+    console.error('DeepSeek API Error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -947,13 +947,65 @@ export async function generateScenarioMindMap(topic: string, apiKey: string): Pr
 
   try {
     const response = await axios.post(API_URL, {
-        model: "deepseek-chat",
-        messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
-        response_format: { type: "json_object" }
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
     }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
     return JSON.parse(response.data.choices[0].message.content);
   } catch (error) {
     console.error('DeepSeek API Error:', error);
     throw error;
+  }
+}
+
+/**
+ * @description 为单词分组生成智能一句话摘要
+ */
+export async function generateClusterSummary(words: string[], apiKey: string): Promise<string> {
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
+    Analyze the following list of English words and identify their common semantic theme or usage scenario.
+    Words: ${words.join(', ')}
+
+    Please provide a **single, concise sentence** in Chinese that summarizes this group.
+    
+    Requirements:
+    1. The summary must be in Chinese.
+    2. Focus on the *shared meaning*, *context*, or *topic* (e.g., "法律诉讼场景", "情绪表达", "建筑工程术语").
+    3. Format: "本组主要包含关于[主题]的词汇" or similar natural phrasing.
+    4. Keep it under 20 Chinese characters if possible.
+    5. No extra conversational filler.
+
+    Return strictly in JSON format:
+    {
+      "summary": "..."
+    }
+  `;
+
+  try {
+    const response = await axios.post(
+      API_URL,
+      {
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: "You are a helpful assistant that outputs JSON." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    return JSON.parse(content).summary;
+  } catch (error) {
+    console.error('DeepSeek Cluster Summary Error:', error);
+    return "包含一组相关的英语词汇"; // Fallback
   }
 }

@@ -1,19 +1,19 @@
-import { 
-  fsrs, 
-  generatorParameters, 
-  createEmptyCard, 
-  Rating, 
+import {
+  fsrs,
+  generatorParameters,
+  createEmptyCard,
+  Rating,
 } from 'ts-fsrs';
-import type { 
+import type {
   RecordLogItem,
   Grade
 } from 'ts-fsrs';
 import type { WordCard } from '@/types';
 
 // 配置 FSRS 参数
-const params = generatorParameters({ 
+const params = generatorParameters({
   enable_fuzz: true, // 启用模糊以避免卡片堆积
-  enable_short_term: true 
+  enable_short_term: true
 });
 
 const f = fsrs(params);
@@ -22,8 +22,8 @@ const f = fsrs(params);
  * @description 创建新单词卡片
  */
 export function createNewWordCard(
-  word: string, 
-  meaning: string, 
+  word: string,
+  meaning: string,
   partOfSpeech: string,
   deckId: string,
   example?: string,
@@ -52,17 +52,30 @@ export function createNewWordCard(
  */
 export function scheduleReview(card: WordCard, rating: Rating): { card: WordCard; log: any } {
   const now = new Date();
+
+  // [FIX] Ensure dates are proper Date objects (handle deserialization from JSON/Storage)
+  const fixDate = (d: any) => (d && !(d instanceof Date)) ? new Date(d) : d;
+
+  const safeCard = {
+    ...card,
+    due: fixDate(card.due),
+    last_review: fixDate(card.last_review)
+  };
+
   // f.repeat returns RecordLog which is a map of Rating -> RecordLogItem
-  const scheduling_cards = f.repeat(card, now);
-  
+  const scheduling_cards = f.repeat(safeCard, now);
+
   // Ensure rating is a valid grade for indexing (1-4)
   const grade = rating as Grade;
   const item: RecordLogItem = scheduling_cards[grade];
-  
+
+  // [DEBUG] Verify state transition
+  // if (card.state === 0 && item.card.state === 0) { console.warn("FSRS State STUCK at 0", item.card); }
+
   return {
     card: {
       ...card,
-      ...item.card, // Update FSRS fields
+      ...item.card, // Update FSRS fields (state, due, stability, etc.)
     },
     log: item.log
   };

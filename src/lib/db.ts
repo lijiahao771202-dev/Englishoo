@@ -6,59 +6,59 @@ import { type ReviewLog, State } from 'ts-fsrs';
  * @description 数据库模式定义
  */
 interface MyDB extends DBSchema {
-  decks: {
-    key: string;
-    value: Deck;
-  };
-  cards: {
-    key: string;
-    value: WordCard;
-    indexes: { 'due': string; 'deckId': string; 'word': string };
-  };
-  logs: {
-    key: number;
-    value: ReviewLog & { cardId: string };
-    autoIncrement: true;
-    indexes: { 'cardId': string };
-  };
-  // v3 新增: 存储单词的语义向量
-  embeddings: {
-    key: string; // word
-    value: { word: string; vector: number[] };
-  };
-  // v3 新增: 存储单词间的语义连接
-  semantic_connections: {
-    key: string; // source word
-    value: { source: string; connections: Array<{ target: string; similarity: number; label?: string; example?: string; example_cn?: string }> };
-  };
-  // v5 新增: 缓存卡包的语义聚类结果
-  deck_clusters: {
-    key: string; // deckId
-    value: { deckId: string; clusters: any[]; updatedAt: number; totalDeckSize?: number };
-  };
-  // v6 新增: 缓存分组学习的图谱结构
-  group_graphs: {
-    key: string; // cacheKey (hash of words)
-    value: { 
-      id: string; 
-      nodes: any[]; 
-      links: any[]; 
-      timestamp: number;
+    decks: {
+        key: string;
+        value: Deck;
     };
-  };
-  // v7 新增: 缓存 AI 生成的单词关联数据 (用于复习模式)
-  ai_graph_cache: {
-    key: string; // word
-    value: {
-      word: string;
-      relatedItems: Array<{ word: string; meaning: string; relation: string }>;
-      timestamp: number;
+    cards: {
+        key: string;
+        value: WordCard;
+        indexes: { 'due': string; 'deckId': string; 'word': string };
     };
-  };
+    logs: {
+        key: number;
+        value: ReviewLog & { cardId: string };
+        autoIncrement: true;
+        indexes: { 'cardId': string };
+    };
+    // v3 新增: 存储单词的语义向量
+    embeddings: {
+        key: string; // word
+        value: { word: string; vector: number[] };
+    };
+    // v3 新增: 存储单词间的语义连接
+    semantic_connections: {
+        key: string; // source word
+        value: { source: string; connections: Array<{ target: string; similarity: number; label?: string; example?: string; example_cn?: string }> };
+    };
+    // v5 新增: 缓存卡包的语义聚类结果
+    deck_clusters: {
+        key: string; // deckId
+        value: { deckId: string; clusters: any[]; updatedAt: number; totalDeckSize?: number };
+    };
+    // v6 新增: 缓存分组学习的图谱结构
+    group_graphs: {
+        key: string; // cacheKey (hash of words)
+        value: {
+            id: string;
+            nodes: any[];
+            links: any[];
+            timestamp: number;
+        };
+    };
+    // v7 新增: 缓存 AI 生成的单词关联数据 (用于复习模式)
+    ai_graph_cache: {
+        key: string; // word
+        value: {
+            word: string;
+            relatedItems: Array<{ word: string; meaning: string; relation: string }>;
+            timestamp: number;
+        };
+    };
 }
 
 const DB_NAME = 'englishoo-db';
-const DB_VERSION = 7; // Incremented version to 7 to add ai_graph_cache
+const DB_VERSION = 9; // Incremented version to 9 to resolve mismatch
 
 let dbPromise: Promise<IDBPDatabase<MyDB>>;
 
@@ -70,77 +70,77 @@ export const SYSTEM_DECK_GUIDED = 'system-mindmap-guided';
  * @description 获取/初始化数据库
  */
 export function getDB() {
-  if (!dbPromise) {
-    dbPromise = openDB<MyDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion, _newVersion, transaction) {
-        if (oldVersion < 1) {
-          // Decks store
-          if (!db.objectStoreNames.contains('decks')) {
-              db.createObjectStore('decks', { keyPath: 'id' });
-          }
+    if (!dbPromise) {
+        dbPromise = openDB<MyDB>(DB_NAME, DB_VERSION, {
+            upgrade(db, oldVersion, _newVersion, transaction) {
+                if (oldVersion < 1) {
+                    // Decks store
+                    if (!db.objectStoreNames.contains('decks')) {
+                        db.createObjectStore('decks', { keyPath: 'id' });
+                    }
 
-          // Create Cards Store with deckId index
-          if (!db.objectStoreNames.contains('cards')) {
-              const cardStore = db.createObjectStore('cards', { keyPath: 'id' });
-              cardStore.createIndex('due', 'due');
-              cardStore.createIndex('deckId', 'deckId');
-              cardStore.createIndex('word', 'word', { unique: false }); // Add word index
-          }
+                    // Create Cards Store with deckId index
+                    if (!db.objectStoreNames.contains('cards')) {
+                        const cardStore = db.createObjectStore('cards', { keyPath: 'id' });
+                        cardStore.createIndex('due', 'due');
+                        cardStore.createIndex('deckId', 'deckId');
+                        cardStore.createIndex('word', 'word', { unique: false }); // Add word index
+                    }
 
-          // Create Logs Store
-          if (!db.objectStoreNames.contains('logs')) {
-              const logStore = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true } as any);
-              logStore.createIndex('cardId', 'cardId');
-          }
-        }
-        
-        // v3: Create Embeddings Store
-        if (oldVersion < 3) {
-            if (!db.objectStoreNames.contains('embeddings')) {
-                db.createObjectStore('embeddings', { keyPath: 'word' });
-            }
-            if (!db.objectStoreNames.contains('semantic_connections')) {
-                db.createObjectStore('semantic_connections', { keyPath: 'source' });
-            }
-        }
+                    // Create Logs Store
+                    if (!db.objectStoreNames.contains('logs')) {
+                        const logStore = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true } as any);
+                        logStore.createIndex('cardId', 'cardId');
+                    }
+                }
 
-        // v4: Add word index to existing store if missing
-        if (oldVersion >= 1 && oldVersion < 4) {
-             const cardStore = transaction.objectStore('cards');
-             if (!cardStore.indexNames.contains('word')) {
-                 cardStore.createIndex('word', 'word', { unique: false });
-             }
-        }
+                // v3: Create Embeddings Store
+                if (oldVersion < 3) {
+                    if (!db.objectStoreNames.contains('embeddings')) {
+                        db.createObjectStore('embeddings', { keyPath: 'word' });
+                    }
+                    if (!db.objectStoreNames.contains('semantic_connections')) {
+                        db.createObjectStore('semantic_connections', { keyPath: 'source' });
+                    }
+                }
 
-        // v5: Create Deck Clusters Cache Store
-        if (oldVersion < 5) {
-            if (!db.objectStoreNames.contains('deck_clusters')) {
-                db.createObjectStore('deck_clusters', { keyPath: 'deckId' });
-            }
-        }
+                // v4: Add word index to existing store if missing
+                if (oldVersion >= 1 && oldVersion < 4) {
+                    const cardStore = transaction.objectStore('cards');
+                    if (!cardStore.indexNames.contains('word')) {
+                        cardStore.createIndex('word', 'word', { unique: false });
+                    }
+                }
 
-        // v6: Create Group Graphs Cache Store
-        if (oldVersion < 6) {
-            if (!db.objectStoreNames.contains('group_graphs')) {
-                db.createObjectStore('group_graphs', { keyPath: 'id' });
-            }
-        }
+                // v5: Create Deck Clusters Cache Store
+                if (oldVersion < 5) {
+                    if (!db.objectStoreNames.contains('deck_clusters')) {
+                        db.createObjectStore('deck_clusters', { keyPath: 'deckId' });
+                    }
+                }
 
-        // v7: Create AI Graph Cache Store
-        if (oldVersion < 7) {
-            if (!db.objectStoreNames.contains('ai_graph_cache')) {
-                db.createObjectStore('ai_graph_cache', { keyPath: 'word' });
-            }
-        }
-    },
-    });
-  }
-  return dbPromise;
+                // v6: Create Group Graphs Cache Store
+                if (oldVersion < 6) {
+                    if (!db.objectStoreNames.contains('group_graphs')) {
+                        db.createObjectStore('group_graphs', { keyPath: 'id' });
+                    }
+                }
+
+                // v7: Create AI Graph Cache Store
+                if (oldVersion < 7) {
+                    if (!db.objectStoreNames.contains('ai_graph_cache')) {
+                        db.createObjectStore('ai_graph_cache', { keyPath: 'word' });
+                    }
+                }
+            },
+        });
+    }
+    return dbPromise;
 }
 
 export const initDB = async () => {
     const db = await getDB();
-    
+
     // Post-upgrade: Ensure default "Vocabulary Book" exists
     const defaultDeckId = 'vocabulary-book';
     // Use put instead of add to prevent ConstraintError if it exists but get() missed it due to race conditions
@@ -150,11 +150,11 @@ export const initDB = async () => {
         // db.put will overwrite if exists. For a deck metadata, it's fine to ensure it exists.
         // But we don't want to overwrite user changes to the deck name/desc if it exists.
         // So we stick to existence check but catch the add error more gracefully or use a transaction.
-        
+
         // Better approach: Just try to get it. If not, try to add. If add fails, it's fine.
         const existing = await db.get('decks', defaultDeckId);
         if (!existing) {
-             await db.put('decks', {
+            await db.put('decks', {
                 id: defaultDeckId,
                 name: '生词本',
                 description: '默认生词本，用于存放日常收集的单词',
@@ -181,7 +181,7 @@ export const initDB = async () => {
     } catch (e) {
         console.warn('System guided deck creation skipped:', e);
     }
-    
+
     return db;
 };
 
@@ -191,11 +191,11 @@ export const initDB = async () => {
 export async function addToVocabularyDeck(word: string) {
     const db = await getDB();
     const deckId = 'vocabulary-book';
-    
+
     // Check if word already exists in this deck
     const existingCards = await db.getAllFromIndex('cards', 'deckId', deckId);
     const exists = existingCards.some(c => c.word.toLowerCase() === word.toLowerCase());
-    
+
     if (exists) {
         return { success: false, message: '单词已存在于生词本中' };
     }
@@ -207,7 +207,7 @@ export async function addToVocabularyDeck(word: string) {
         "unknown",
         deckId
     );
-    
+
     await db.put('cards', newCard);
     return { success: true, message: '已添加到生词本', card: newCard };
 }
@@ -243,19 +243,19 @@ export async function deleteDeck(id: string) {
     }
     const db = await getDB();
     const tx = db.transaction(['decks', 'cards'], 'readwrite');
-    
+
     // Delete deck
     await tx.objectStore('decks').delete(id);
-    
+
     // Delete associated cards
     const index = tx.objectStore('cards').index('deckId');
     let cursor = await index.openCursor(IDBKeyRange.only(id));
-    
+
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
     }
-    
+
     await tx.done;
 }
 
@@ -265,16 +265,16 @@ export async function deleteDeck(id: string) {
  * @description 保存或更新卡片
  */
 export async function saveCard(card: WordCard) {
-  const db = await getDB();
-  return db.put('cards', card);
+    const db = await getDB();
+    return db.put('cards', card);
 }
 
 /**
  * @description 删除卡片
  */
 export async function deleteCard(id: string) {
-  const db = await getDB();
-  return db.delete('cards', id);
+    const db = await getDB();
+    return db.delete('cards', id);
 }
 
 /**
@@ -306,13 +306,13 @@ export async function getCardByWord(word: string) {
     // If duplicates exist across decks, this returns the first one found by index.
     // Since we want ANY card matching the word (usually for context), this is fine.
     const card = await db.getFromIndex('cards', 'word', word);
-    
+
     // Fallback for case-insensitive search if exact match fails (index is case-sensitive usually)
     if (!card) {
         // Try lowercase
         const lowerCard = await db.getFromIndex('cards', 'word', word.toLowerCase());
         if (lowerCard) return lowerCard;
-        
+
         // Last resort: Linear scan (only if index fails completely)
         // const allCards = await db.getAll('cards');
         // return allCards.find(c => c.word.toLowerCase() === word.toLowerCase());
@@ -324,16 +324,36 @@ export async function getCardByWord(word: string) {
  * @description 获取所有新卡片 (State.New) (可按 deckId 过滤)
  */
 export async function getNewCards(deckId?: string) {
-  const db = await getDB();
-  let allCards: WordCard[];
-  
-  if (deckId) {
-      allCards = await db.getAllFromIndex('cards', 'deckId', deckId);
-  } else {
-      allCards = await db.getAll('cards');
-  }
-  
-  return allCards.filter(card => card.state === State.New && !card.isFamiliar);
+    const db = await getDB();
+    let allCards: WordCard[];
+
+    if (deckId) {
+        allCards = await db.getAllFromIndex('cards', 'deckId', deckId);
+    } else {
+        allCards = await db.getAll('cards');
+    }
+
+    return allCards.filter(card => card.state === State.New && !card.isFamiliar);
+}
+
+/**
+ * @description 获取所有待学习或正在学习的卡片 (New + Learning + Relearning)
+ * 用于分组学习模式，确保能够包含未完成的分组。
+ */
+export async function getActiveCards(deckId?: string) {
+    const db = await getDB();
+    let allCards: WordCard[];
+
+    if (deckId) {
+        allCards = await db.getAllFromIndex('cards', 'deckId', deckId);
+    } else {
+        allCards = await db.getAll('cards');
+    }
+
+    return allCards.filter(card =>
+        (card.state === State.New || card.state === State.Learning || card.state === State.Relearning)
+        && !card.isFamiliar
+    );
 }
 
 /**
@@ -350,9 +370,9 @@ export async function getDueCards(deckId?: string) {
         allCards = await db.getAll('cards');
     }
 
-    return allCards.filter(card => 
-        card.due.getTime() <= now.getTime() && 
-        card.state !== State.New && 
+    return allCards.filter(card =>
+        card.due.getTime() <= now.getTime() &&
+        card.state !== State.New &&
         !card.isFamiliar
     );
 }
@@ -362,7 +382,12 @@ export async function getDueCards(deckId?: string) {
  */
 export async function addReviewLog(log: ReviewLog & { cardId: string }) {
     const db = await getDB();
-    return db.add('logs', log);
+    // Manual ID generation to ensure keyPath 'id' is satisfied even if autoIncrement is missing in legacy DBs
+    const logWithId = {
+        ...log,
+        id: Date.now() // Use timestamp as ID
+    };
+    return db.add('logs', logWithId);
 }
 
 /**
@@ -375,12 +400,12 @@ export async function getCardsByIds(ids: string[]): Promise<WordCard[]> {
     const cards: WordCard[] = [];
     const tx = db.transaction('cards', 'readonly');
     const store = tx.objectStore('cards');
-    
+
     for (const id of ids) {
         const card = await store.get(id);
         if (card) cards.push(card);
     }
-    
+
     await tx.done;
     return cards;
 }
@@ -409,12 +434,37 @@ export async function getGroupGraphCache(cacheKey: string) {
     return db.get('group_graphs', cacheKey);
 }
 
-/**
- * @description 保存分组图谱缓存
- */
 export async function saveGroupGraphCache(data: { id: string; nodes: any[]; links: any[]; timestamp: number }) {
     const db = await getDB();
     return db.put('group_graphs', data);
+}
+
+/**
+ * @description 重置数据库 (清空所有数据)
+ * 用于完全重置应用状态，包括删除所有卡片、日志、分组缓存等。
+ */
+export async function resetDatabase() {
+    const db = await getDB();
+    db.close();
+
+    // Delete the underlying SimpleDB
+    const req = indexedDB.deleteDatabase(DB_NAME);
+
+    return new Promise<void>((resolve, reject) => {
+        req.onsuccess = () => {
+            console.log('Database deleted successfully');
+            dbPromise = null as any; // Reset promise
+            resolve();
+        };
+        req.onerror = () => {
+            console.error('Failed to delete database');
+            reject(req.error);
+        };
+        req.onblocked = () => {
+            console.warn('Database delete blocked');
+            // Force reload might be needed if blocked
+        };
+    });
 }
 
 /**

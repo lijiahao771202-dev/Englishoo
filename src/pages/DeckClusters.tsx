@@ -55,7 +55,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                 // Always fetch fresh cards from DB to ensure progress is up-to-date
                 // The 'cards' prop is used for fast hydration of clusters, but we need fresh state for progress
                 const allCards = await getAllCards(deckId);
-                
+
                 const map: Record<string, WordCard> = {};
                 allCards.forEach(c => {
                     if (c.word) map[c.word.toLowerCase()] = c;
@@ -71,12 +71,12 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
     // Calculate enriched clusters with progress
     const enrichedClusters = useMemo(() => {
         if (clusters.length === 0) return [];
-        
+
         return clusters.map(cluster => {
             const items = cluster.items;
             const total = items.length;
             let learned = 0;
-            
+
             items.forEach(item => {
                 const card = cardsMap[item.word.toLowerCase()];
                 // If card exists and state is NOT New, count as learned
@@ -84,7 +84,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                     learned++;
                 }
             });
-            
+
             return {
                 ...cluster,
                 total,
@@ -127,7 +127,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                     });
                 }
             };
-            
+
             updateSize();
             window.addEventListener('resize', updateSize);
             return () => window.removeEventListener('resize', updateSize);
@@ -157,14 +157,14 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
         if (forceRefresh) {
             setClusters([]);
             setSelectedCluster(null);
-             setLoading(true);
-             setLoadingMessage("正在读取分组数据...");
+            setLoading(true);
+            setLoadingMessage("正在读取分组数据...");
         } else if (clusters.length === 0) {
-             // Initial load
-             setLoading(true);
-             setLoadingMessage("正在读取分组数据...");
+            // Initial load
+            setLoading(true);
+            setLoadingMessage("正在读取分组数据...");
         }
-        
+
         // Timer to switch message if loading takes too long
         const timer = setTimeout(() => {
             if (loading) setLoadingMessage("正在构建语义网络...");
@@ -188,14 +188,14 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
         try {
             const service = EmbeddingService.getInstance();
             const words = cluster.items.map(item => item.word);
-            
+
             // Use computeGroupConnections directly to match GuidedLearningSession
             // [MODIFIED] Lower threshold to 0.6 to allow more connections
             const allConnections = await service.computeGroupConnections(words, 0.6);
-            
+
             // [MODIFIED] Simplify Graph Logic: Keep only top-4 strongest connections per node
             const simplifiedLinks: any[] = [];
-            const linkSet = new Set<string>(); 
+            const linkSet = new Set<string>();
             const getLinkKey = (a: string, b: string) => [a, b].sort().join(':');
 
             // Create map for ID lookup
@@ -207,16 +207,16 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                 myConnections.sort((a, b) => b.similarity - a.similarity);
                 // [MODIFIED] Take top 4
                 const topK = myConnections.slice(0, 4);
-                
+
                 topK.forEach(conn => {
                     const key = getLinkKey(conn.source, conn.target);
                     if (!linkSet.has(key)) {
                         linkSet.add(key);
                         const sourceId = nodeIdMap.get(conn.source);
                         const targetId = nodeIdMap.get(conn.target);
-                        
+
                         if (sourceId && targetId) {
-                             simplifiedLinks.push({
+                            simplifiedLinks.push({
                                 source: sourceId,
                                 target: targetId,
                                 similarity: conn.similarity,
@@ -226,20 +226,20 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                     }
                 });
             });
-            
+
             // Calculate degree for sizing
             const degree: Record<string, number> = {};
             simplifiedLinks.forEach(link => {
-                 const s = typeof link.source === 'object' ? link.source.id : link.source;
-                 const t = typeof link.target === 'object' ? link.target.id : link.target;
-                 degree[s] = (degree[s] || 0) + 1;
-                 degree[t] = (degree[t] || 0) + 1;
+                const s = typeof link.source === 'object' ? link.source.id : link.source;
+                const t = typeof link.target === 'object' ? link.target.id : link.target;
+                degree[s] = (degree[s] || 0) + 1;
+                degree[t] = (degree[t] || 0) + 1;
             });
 
             const nodes = cluster.items.map(item => ({
                 ...item,
                 id: item.id,
-                label: item.word, 
+                label: item.word,
                 val: degree[item.id] || 1
             }));
 
@@ -261,7 +261,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-4">
-                    <button 
+                    <button
                         onClick={onBack}
                         className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     >
@@ -277,8 +277,37 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                         </p>
                     </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
+                    {/* Global Start Button (Standard Flow) */}
+                    {selectedClusters.size === 0 && (
+                        <button
+                            onClick={() => {
+                                // Start from the first unlearned cluster, but pass ALL clusters so status is "Group X / Total"
+                                // If they are all learned, maybe start from beginning or alert?
+                                // Let's pass all clusters. GuidedLearningSession handles skipping learned ones or `activeGroupIndex`
+                                // Finding start index:
+                                const effectiveIndex = currentClusterIndex === -1 ? 0 : currentClusterIndex;
+                                // We need to re-order? No, keep order.
+                                // Just pass all clusters. The session will start at `activeGroupIndex` if we can pass it,
+                                // BUT `onStartSession` signature in this file is just `(groups)`.
+                                // Let's check App.tsx for how it handles `onStartSession`.
+                                // If App.tsx just takes the list and resets index to 0, then we should slice?
+                                // User wants "Group 5/10". If we slice, it becomes "Group 1/6".
+                                // Ideally we pass ALL, and tell App to start at X.
+                                // For now, let's assume filtering:
+                                // If we pass ALL, the user has to skip manualy?
+                                // Let's filter to "From Current to End".
+                                const clustersToStudy = clusters.slice(effectiveIndex);
+                                onStartSession(clustersToStudy);
+                            }}
+                            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20 transition-all hover:scale-105"
+                        >
+                            <BookOpen className="w-4 h-4" />
+                            开始学习 (从第 {currentClusterIndex + 1} 组起)
+                        </button>
+                    )}
+
                     {selectedClusters.size > 0 && (
                         <motion.button
                             initial={{ opacity: 0, x: 20 }}
@@ -290,7 +319,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                             className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold shadow-lg shadow-blue-500/20 transition-all"
                         >
                             <BookOpen className="w-4 h-4" />
-                            开始学习 ({selectedClusters.size} 组)
+                            复习选中 ({selectedClusters.size} 组)
                         </motion.button>
                     )}
 
@@ -326,127 +355,154 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                 <div className="flex-1 overflow-hidden flex gap-6">
                     {/* Cluster Grid */}
                     <div className={cn(
-                        "flex-1 overflow-y-auto pr-2 transition-all duration-500",
+                        "flex-1 overflow-y-auto pr-2 transition-all duration-500 custom-scrollbar",
                         selectedCluster ? "w-1/2" : "w-full"
                     )}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20">
+                        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-5 pb-20 p-1">
                             {visibleClusters.map((cluster, idx) => {
                                 const isCurrent = idx === currentClusterIndex;
                                 const isCompleted = cluster.learned === cluster.total && cluster.total > 0;
                                 const isSelected = selectedClusters.has(cluster.label);
-                                
+
+                                // Format number for watermark (e.g., 01, 02)
+                                const numberStr = String(idx + 1).padStart(2, '0');
+
                                 return (
-                                <motion.div
-                                    key={idx}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                    onClick={() => {
-                                        setSelectedCluster(cluster);
-                                        setViewMode('graph'); // Default to graph view
-                                    }}
-                                    className={cn(
-                                        "text-left group relative overflow-hidden rounded-xl p-5 transition-all duration-300 cursor-pointer",
-                                        "border border-white/5 hover:border-white/20",
-                                        selectedCluster === cluster 
-                                            ? "bg-blue-500/10 border-blue-500/50 shadow-[0_0_20px_rgba(59,130,246,0.2)]" 
-                                            : (isCurrent 
-                                                ? "bg-blue-500/5 border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
-                                                : "glass-panel hover:bg-white/5"),
-                                        isSelected && "ring-2 ring-blue-500/50 bg-blue-500/5"
-                                    )}
-                                >
-                                    {/* Selection Checkbox */}
-                                    <div 
-                                        className="absolute top-3 left-3 z-10"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            const newSet = new Set(selectedClusters);
-                                            if (newSet.has(cluster.label)) {
-                                                newSet.delete(cluster.label);
-                                            } else {
-                                                newSet.add(cluster.label);
-                                            }
-                                            setSelectedClusters(newSet);
+                                    <motion.div
+                                        key={idx}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.4, delay: idx * 0.05 }}
+                                        onClick={() => {
+                                            setSelectedCluster(cluster);
+                                            setViewMode('graph');
                                         }}
+                                        className={cn(
+                                            "relative overflow-hidden rounded-2xl p-6 transition-all duration-500 cursor-pointer group select-none min-h-[220px] flex flex-col",
+                                            "border backdrop-blur-xl shadow-lg",
+                                            // Base styles - Premium Glass
+                                            selectedCluster === cluster
+                                                ? "bg-blue-500/10 border-blue-400/50 shadow-[0_0_30px_rgba(59,130,246,0.25)] ring-1 ring-blue-400/30"
+                                                : isSelected
+                                                    ? "bg-blue-500/10 border-blue-500/30"
+                                                    : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+                                        )}
                                     >
-                                        <div className={cn(
-                                            "w-5 h-5 rounded border transition-all flex items-center justify-center",
-                                            isSelected 
-                                                ? "bg-blue-500 border-blue-500 text-white" 
-                                                : "border-white/20 hover:border-white/40 bg-black/20"
-                                        )}>
-                                            {isSelected && <Check className="w-3.5 h-3.5" />}
-                                        </div>
-                                    </div>
-
-                                    {/* Current Indicator */}
-                                    {isCurrent && (
-                                        <div className="absolute top-3 right-3 flex h-2.5 w-2.5">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
-                                        </div>
-                                    )}
-                                    
-                                    {/* Completed Indicator */}
-                                    {isCompleted && (
-                                        <div className="absolute top-3 right-3 text-green-400/80">
-                                            <CheckCircle2 className="w-4 h-4" />
-                                        </div>
-                                    )}
-
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className={cn(
-                                            "p-2 rounded-lg transition-colors",
-                                            isCurrent ? "bg-cyan-500/20 text-cyan-300" : (isCompleted ? "bg-green-500/20 text-green-300" : "bg-blue-500/20 text-blue-300")
-                                        )}>
-                                            {isCurrent ? <BookOpen className="w-5 h-5" /> : <Target className="w-5 h-5" />}
-                                        </div>
-                                        {!isCurrent && !isCompleted && (
-                                            <span className="text-xs font-mono text-white/40 bg-black/20 px-2 py-1 rounded-full">
-                                                {cluster.items.length} 词
+                                        {/* 1. Perspective Watermark Number */}
+                                        <div className="absolute -top-4 -right-1 z-0 pointer-events-none transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6">
+                                            <span className="text-[6rem] font-black text-white/5 font-sans tracking-tighter leading-none">
+                                                {numberStr}
                                             </span>
-                                        )}
-                                    </div>
-                                    
-                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-blue-300 transition-colors pr-4">
-                                        {cluster.label}
-                                    </h3>
-                                    
-                                    <div className="flex flex-wrap gap-1 mt-3 opacity-60 mb-3">
-                                        {cluster.items.slice(0, 3).map(item => (
-                                            <span key={item.id} className="text-xs bg-white/5 px-1.5 py-0.5 rounded">
-                                                {item.word}
-                                            </span>
-                                        ))}
-                                        {cluster.items.length > 3 && (
-                                            <span className="text-xs px-1">...</span>
-                                        )}
-                                    </div>
-
-                                    {/* Progress Bar */}
-                                    <div className="space-y-1.5 mt-auto pt-2 border-t border-white/5">
-                                        <div className="flex justify-between text-[10px] font-medium uppercase tracking-wider text-white/40">
-                                            <span>{isCurrent ? '正在学习' : (isCompleted ? '已完成' : '进度')}</span>
-                                            <span>{cluster.learned} / {cluster.total}</span>
                                         </div>
-                                        <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden">
-                                            <div 
-                                                className={cn(
-                                                    "h-full transition-all duration-500",
-                                                    isCompleted ? "bg-green-500" : "bg-gradient-to-r from-cyan-400 to-blue-500"
+
+                                        {/* 2. Selection Hit Area (Full Card Click handles entry, this handles selection) */}
+                                        <div
+                                            className="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const newSet = new Set(selectedClusters);
+                                                if (newSet.has(cluster.label)) {
+                                                    newSet.delete(cluster.label);
+                                                } else {
+                                                    newSet.add(cluster.label);
+                                                }
+                                                setSelectedClusters(newSet);
+                                            }}
+                                        >
+                                            <div className={cn(
+                                                "w-6 h-6 rounded-full border flex items-center justify-center transition-all",
+                                                isSelected
+                                                    ? "bg-blue-500 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                                                    : "border-white/30 hover:border-white/60 bg-black/40 backdrop-blur-sm"
+                                            )}>
+                                                {isSelected && <Check className="w-3.5 h-3.5" />}
+                                            </div>
+                                        </div>
+                                        {/* Always show selection if selected */}
+                                        {isSelected && (
+                                            <div className="absolute top-4 right-4 z-20">
+                                                <div className="w-6 h-6 rounded-full bg-blue-500 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)] flex items-center justify-center">
+                                                    <Check className="w-3.5 h-3.5" />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 3. Card Content */}
+                                        <div className="relative z-10 flex flex-col h-full">
+                                            {/* Header */}
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <div className={cn(
+                                                    "w-8 h-8 rounded-lg flex items-center justify-center backdrop-blur-md shadow-inner",
+                                                    isCurrent ? "bg-cyan-500/20 text-cyan-300" : (isCompleted ? "bg-green-500/20 text-green-300" : "bg-white/10 text-blue-200")
+                                                )}>
+                                                    {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : (isCurrent ? <Target className="w-5 h-5" /> : <Layers className="w-4 h-4" />)}
+                                                </div>
+
+                                                {/* Mini Tag */}
+                                                <div className="text-xs font-medium px-2 py-0.5 rounded-full bg-white/5 border border-white/5 text-white/50">
+                                                    {cluster.items.length} 词
+                                                </div>
+                                            </div>
+
+                                            {/* Title */}
+                                            <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-br from-white to-white/60 mb-4 group-hover:to-white transition-all">
+                                                {cluster.label}
+                                            </h3>
+
+                                            {/* Word Pills */}
+                                            <div className="flex flex-wrap gap-2 mb-6">
+                                                {cluster.items.slice(0, 4).map(item => (
+                                                    <span key={item.id} className="text-xs font-medium bg-white/5 border border-white/5 px-2 py-1 rounded-md text-white/60 group-hover:bg-white/10 group-hover:text-white/80 transition-colors">
+                                                        {item.word}
+                                                    </span>
+                                                ))}
+                                                {cluster.items.length > 4 && (
+                                                    <span className="text-xs px-1 py-1 text-white/30">...</span>
                                                 )}
-                                                style={{ width: `${cluster.progress}%` }}
-                                            />
+                                            </div>
+
+                                            {/* Status Footer & Glow Line */}
+                                            <div className="mt-auto">
+                                                <div className="flex justify-between items-end mb-2">
+                                                    <span className={cn(
+                                                        "text-xs font-bold uppercase tracking-wider",
+                                                        isCurrent ? "text-cyan-400" : (isCompleted ? "text-green-400" : "text-white/30")
+                                                    )}>
+                                                        {isCurrent ? '当前目标' : (isCompleted ? '已掌握' : '以太网络')}
+                                                    </span>
+                                                    <span className="text-xs font-mono text-white/40">
+                                                        {(cluster.progress).toFixed(0)}%
+                                                    </span>
+                                                </div>
+
+                                                {/* Bottom Glow Line */}
+                                                <div className="h-1 w-full bg-black/20 rounded-full overflow-hidden relative">
+                                                    {/* Background Glow */}
+                                                    <div className={cn(
+                                                        "absolute inset-0 opacity-50 blur-sm transition-all duration-700",
+                                                        isCompleted ? "bg-green-500" : "bg-blue-500",
+                                                        { "w-0": cluster.progress === 0 }
+                                                    )} style={{ width: `${cluster.progress}%` }} />
+
+                                                    {/* Actual Bar */}
+                                                    <div
+                                                        className={cn(
+                                                            "h-full transition-all duration-700 relative z-10",
+                                                            isCompleted ? "bg-green-400" : (isCurrent ? "bg-cyan-400" : "bg-blue-500")
+                                                        )}
+                                                        style={{ width: `${cluster.progress}%` }}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </motion.div>
-                            )})}
-                            
+                                    </motion.div>
+                                )
+                            })}
+
                             {/* Sentinel for infinite scroll */}
                             {visibleCount < clusters.length && (
                                 <div ref={loadMoreRef} className="col-span-full flex justify-center py-8">
-                                    <Loader2 className="w-6 h-6 animate-spin text-white/30" />
+                                    <Loader2 className="w-8 h-8 animate-spin text-white/20" />
                                 </div>
                             )}
                         </div>
@@ -455,7 +511,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                     {/* Detail Panel (Right Side) */}
                     <AnimatePresence>
                         {selectedCluster && (
-                            <motion.div 
+                            <motion.div
                                 initial={{ opacity: 0, x: 50 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 50 }}
@@ -472,7 +528,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                             >
                                                 {viewMode === 'graph' ? <List className="w-5 h-5" /> : <Network className="w-5 h-5" />}
                                             </button>
-                                            <button 
+                                            <button
                                                 onClick={() => setSelectedCluster(null)}
                                                 className="p-2 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors"
                                             >
@@ -484,7 +540,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                         <span>包含 {selectedCluster.items.length} 个相关词汇</span>
                                     </div>
                                 </div>
-                                
+
                                 <div className="flex-1 overflow-hidden relative bg-slate-900/50" ref={containerRef}>
                                     {viewMode === 'graph' ? (
                                         isGraphLoading ? (
@@ -503,14 +559,14 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                                 linkCanvasObject={(link: any, ctx) => {
                                                     const source = link.source;
                                                     const target = link.target;
-                                                    
+
                                                     if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return;
 
                                                     // 1. Draw Line
                                                     ctx.beginPath();
                                                     ctx.moveTo(source.x, source.y);
                                                     ctx.lineTo(target.x, target.y);
-                                                    
+
                                                     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
                                                     ctx.lineWidth = 1;
                                                     ctx.stroke();
@@ -519,9 +575,9 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                                     if (link.label) {
                                                         const midX = (source.x + target.x) / 2;
                                                         const midY = (source.y + target.y) / 2;
-                                                        
+
                                                         const label = link.label;
-                                                        const fontSize = 3; 
+                                                        const fontSize = 3;
                                                         ctx.font = `${fontSize}px Sans-Serif`;
                                                         const textWidth = ctx.measureText(label).width;
                                                         const paddingX = 3;
@@ -531,17 +587,17 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
 
                                                         ctx.save();
                                                         ctx.translate(midX, midY);
-                                                        
+
                                                         // Background (Glass)
                                                         ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
                                                         ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
                                                         ctx.lineWidth = 0.5;
-                                                        
+
                                                         // Rounded Rect
                                                         const r = 2;
                                                         const x = -bckgW / 2;
                                                         const y = -bckgH / 2;
-                                                        
+
                                                         ctx.beginPath();
                                                         ctx.moveTo(x + r, y);
                                                         ctx.lineTo(x + bckgW - r, y);
@@ -553,10 +609,10 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                                         ctx.lineTo(x, y + r);
                                                         ctx.quadraticCurveTo(x, y, x + r, y);
                                                         ctx.closePath();
-                                                        
+
                                                         ctx.fill();
                                                         ctx.stroke();
-                                                        
+
                                                         // Text
                                                         ctx.textAlign = 'center';
                                                         ctx.textBaseline = 'middle';
@@ -564,18 +620,18 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                                         ctx.shadowColor = 'rgba(0,0,0,0.5)';
                                                         ctx.shadowBlur = 2;
                                                         ctx.fillText(label, 0, 0);
-                                                        
+
                                                         ctx.restore();
                                                     }
                                                 }}
                                                 backgroundColor="rgba(0,0,0,0)"
-                                                
+
                                                 // Liquid Glass Effect (Same as KnowledgeGraph)
                                                 nodeCanvasObject={(node, ctx, globalScale) => {
                                                     const label = (node as any).label || '';
                                                     const nodeValue = (node as any).val || 1;
-                                                    const baseRadius = Math.min(Math.max(nodeValue * 2, 4), 10); 
-                                                    
+                                                    const baseRadius = Math.min(Math.max(nodeValue * 2, 4), 10);
+
                                                     // Check learning status
                                                     const word = label.toLowerCase();
                                                     const card = cardsMap[word];
@@ -594,26 +650,26 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                                     ctx.arc(node.x!, node.y!, baseRadius, 0, 2 * Math.PI, false);
                                                     ctx.fillStyle = color;
                                                     ctx.fill();
-                                                    
+
                                                     // Glass shine
                                                     ctx.shadowBlur = 0;
                                                     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
                                                     ctx.beginPath();
                                                     ctx.arc(node.x! - baseRadius * 0.3, node.y! - baseRadius * 0.3, baseRadius * 0.4, 0, 2 * Math.PI, false);
                                                     ctx.fill();
-                                                    
+
                                                     // Text Label (Liquid style)
                                                     if (globalScale >= 1.5) { // Only show label when zoomed in
                                                         const fontSize = 12 / globalScale;
                                                         ctx.font = `${fontSize}px Sans-Serif`;
-                                                        
+
                                                         ctx.textAlign = 'center';
                                                         ctx.textBaseline = 'middle';
                                                         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                                                         ctx.fillText(label, node.x!, node.y! + baseRadius + fontSize);
                                                     }
                                                 }}
-                                                
+
                                                 d3VelocityDecay={0.3}
                                                 cooldownTicks={100}
                                             />
@@ -621,7 +677,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                     ) : (
                                         <div className="h-full overflow-y-auto p-4 space-y-3">
                                             {selectedCluster.items.map((item) => (
-                                                <div 
+                                                <div
                                                     key={item.id}
                                                     className="p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-white/5 group"
                                                 >

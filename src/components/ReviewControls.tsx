@@ -30,37 +30,37 @@ function formatInterval(dueDate: Date): string {
 }
 
 export function ReviewControls({ onRate, disabled, previews }: ReviewControlsProps) {
-  
+
   // Keyboard shortcuts
   useEffect(() => {
     if (disabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-        const active = document.activeElement;
-        const isInput = ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
-        // 允许 ghost-input 触发快捷键（因为在 Review 模式下，如果卡片已翻转，即使焦点在 Ghost Input 上，用户也可能想要评分）
-        const isGhostInput = active?.classList.contains('ghost-input');
+      const active = document.activeElement;
+      const isInput = ['INPUT', 'TEXTAREA'].includes(active?.tagName || '');
+      // 允许 ghost-input 触发快捷键（因为在 Review 模式下，如果卡片已翻转，即使焦点在 Ghost Input 上，用户也可能想要评分）
+      const isGhostInput = active?.classList.contains('ghost-input');
 
-        if (isInput && !isGhostInput) return;
+      if (isInput && !isGhostInput) return;
 
-        switch(e.key) {
-            case '1':
-                playFailSound();
-                onRate(Rating.Again);
-                break;
-            case '2':
-                playPassSound();
-                onRate(Rating.Hard);
-                break;
-            case '3':
-                playPassSound();
-                onRate(Rating.Good);
-                break;
-            case '4':
-                playPassSound();
-                onRate(Rating.Easy);
-                break;
-        }
+      switch (e.key) {
+        case '1':
+          playFailSound();
+          onRate(Rating.Again);
+          break;
+        case '2':
+          playPassSound();
+          onRate(Rating.Hard);
+          break;
+        case '3':
+          playPassSound();
+          onRate(Rating.Good);
+          break;
+        case '4':
+          playPassSound();
+          onRate(Rating.Easy);
+          break;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -69,30 +69,30 @@ export function ReviewControls({ onRate, disabled, previews }: ReviewControlsPro
 
   const buttons = useMemo(() => {
     return [
-        { 
-            label: '重来 (1)', 
-            rating: Rating.Again, 
-            color: 'bg-red-500/20 text-red-200 border-red-500/30 hover:bg-red-500/30',
-            preview: previews?.[Rating.Again]?.card.due
-        },
-        { 
-            label: '困难 (2)', 
-            rating: Rating.Hard, 
-            color: 'bg-orange-500/20 text-orange-200 border-orange-500/30 hover:bg-orange-500/30',
-            preview: previews?.[Rating.Hard]?.card.due
-        },
-        { 
-            label: '良好 (3)', 
-            rating: Rating.Good, 
-            color: 'bg-green-500/20 text-green-200 border-green-500/30 hover:bg-green-500/30',
-            preview: previews?.[Rating.Good]?.card.due
-        },
-        { 
-            label: '简单 (4)', 
-            rating: Rating.Easy, 
-            color: 'bg-blue-500/20 text-blue-200 border-blue-500/30 hover:bg-blue-500/30',
-            preview: previews?.[Rating.Easy]?.card.due
-        },
+      {
+        label: '重来 (1)',
+        rating: Rating.Again,
+        color: 'bg-red-500/20 text-red-200 border-red-500/30 hover:bg-red-500/30',
+        preview: previews?.[Rating.Again]?.card.due
+      },
+      {
+        label: '困难 (2)',
+        rating: Rating.Hard,
+        color: 'bg-orange-500/20 text-orange-200 border-orange-500/30 hover:bg-orange-500/30',
+        preview: previews?.[Rating.Hard]?.card.due
+      },
+      {
+        label: '良好 (3)',
+        rating: Rating.Good,
+        color: 'bg-green-500/20 text-green-200 border-green-500/30 hover:bg-green-500/30',
+        preview: previews?.[Rating.Good]?.card.due
+      },
+      {
+        label: '简单 (4)',
+        rating: Rating.Easy,
+        color: 'bg-blue-500/20 text-blue-200 border-blue-500/30 hover:bg-blue-500/30',
+        preview: previews?.[Rating.Easy]?.card.due
+      },
     ];
   }, [previews]);
 
@@ -102,9 +102,9 @@ export function ReviewControls({ onRate, disabled, previews }: ReviewControlsPro
         <button
           key={btn.label}
           onClick={() => {
-             if (btn.rating === Rating.Again) playFailSound();
-             else playPassSound();
-             onRate(btn.rating);
+            if (btn.rating === Rating.Again) playFailSound();
+            else playPassSound();
+            onRate(btn.rating);
           }}
           disabled={disabled}
           className={cn(
@@ -115,9 +115,9 @@ export function ReviewControls({ onRate, disabled, previews }: ReviewControlsPro
         >
           <span className="font-bold text-sm">{btn.label}</span>
           {btn.preview && (
-             <span className="text-[10px] opacity-70 font-medium font-mono leading-none">
-                {formatInterval(btn.preview)}
-             </span>
+            <span className="text-[10px] opacity-70 font-medium font-mono leading-none">
+              {formatInterval(btn.preview)}
+            </span>
           )}
         </button>
       ))}

@@ -21,7 +21,7 @@ interface FlashcardProps {
   onGenerateRoots?: (card: WordCard) => Promise<WordCard | undefined>;
   onGenerateSyllables?: (card: WordCard) => Promise<WordCard | undefined>;
   onGenerateBridgingExample?: (card: WordCard, targetWord: string, relation: string) => Promise<WordCard | undefined>;
-  
+
   isEnriching?: boolean;
   /** 
    * @description 是否已揭示答案 (受控模式)
@@ -37,12 +37,12 @@ interface FlashcardProps {
    * @description 语义邻居 (用于底部展示)
    */
   semanticNeighbors?: WordCard[];
-  
+
   /**
    * @description 动作回调：认识
    */
   onKnow?: () => void;
-  
+
   /**
    * @description 动作回调：不认识
    */
@@ -74,20 +74,19 @@ interface FlashcardProps {
  * - 拖拽与缩放: 支持任意拖拽移动和右下角调整大小
  * - 信息架构: 极简Tab + 底部语义邻居
  */
-export function Flashcard({ 
-  card, 
-  onFlip, 
-  onEnrich, 
-  onUpdateCard, 
-  onGenerateExample, 
-  onGenerateMnemonic, 
+export function Flashcard({
+  card,
+  onFlip,
+  onEnrich,
+  onUpdateCard,
+  onGenerateExample,
+  onGenerateMnemonic,
   onGenerateMeaning,
-  onGeneratePhrases,
-  onGenerateDerivatives,
+
   onGenerateRoots,
   onGenerateSyllables,
   onGenerateBridgingExample,
-  isEnriching, 
+  isEnriching,
   flipped,
   alwaysShowContent = false,
   initialGhostMode = true, // Default to true (existing behavior)
@@ -108,8 +107,7 @@ export function Flashcard({
   const [isGeneratingMeaning, setIsGeneratingMeaning] = useState(false);
   const [isGeneratingExample, setIsGeneratingExample] = useState(false);
   const [isGeneratingMnemonic, setIsGeneratingMnemonic] = useState(false);
-  const [isGeneratingPhrases, setIsGeneratingPhrases] = useState(false);
-  const [isGeneratingDerivatives, setIsGeneratingDerivatives] = useState(false);
+
   const [isGeneratingRoots, setIsGeneratingRoots] = useState(false);
   const [isGeneratingSyllables, setIsGeneratingSyllables] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -122,7 +120,7 @@ export function Flashcard({
   // UI States
   const [showSplit, setShowSplit] = useState(false);
   const [activeTab, setActiveTab] = useState<'meaning' | 'example' | 'mnemonic' | 'phrases' | 'derivatives' | 'roots'>('meaning');
-  
+
   // Tabs Order State
   const [tabs, setTabs] = useState([
     { id: 'example', label: '例句', icon: Eye },
@@ -143,7 +141,7 @@ export function Flashcard({
     // Reset typing state when card changes
     setTypedInput('');
     setIsShaking(false);
-    
+
     // Auto-focus input in Ghost Mode when card changes (if not revealed)
     if (isGhostMode && !isRevealed && inputRef.current) {
       inputRef.current.focus();
@@ -162,7 +160,7 @@ export function Flashcard({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVal = e.target.value;
     const targetWord = card.word;
-    
+
     // Allow backspace (shorter length)
     if (newVal.length < typedInput.length) {
       setTypedInput(newVal);
@@ -172,7 +170,7 @@ export function Flashcard({
     // Auto-Reset: If already complete, allow typing ANY key to restart
     if (typedInput.length === targetWord.length) {
       const lastChar = newVal.slice(-1);
-      
+
       // Treat as new attempt starting with this character
       if (lastChar.toLowerCase() === targetWord[0].toLowerCase()) {
         setTypedInput(lastChar);
@@ -187,7 +185,7 @@ export function Flashcard({
 
     // Check the newly typed character
     const nextCharIndex = typedInput.length;
-    if (nextCharIndex >= targetWord.length) return; 
+    if (nextCharIndex >= targetWord.length) return;
 
     const typedChar = newVal[nextCharIndex];
     const expectedChar = targetWord[nextCharIndex];
@@ -195,16 +193,16 @@ export function Flashcard({
     // Case-insensitive check
     if (typedChar.toLowerCase() === expectedChar.toLowerCase()) {
       setTypedInput(newVal);
-      
+
       // Check for completion
       if (newVal.length === targetWord.length) {
-        playSuccessSound(); 
-        speakWord(); 
-        
+        playSuccessSound();
+        speakWord();
+
         // Auto-reveal to show meaning
         if (onFlip) onFlip(true);
         setInternalRevealed(true);
-        
+
         // [User Request]: Disable auto-submit. 
         // Allow user to keep typing (which will reset due to logic above) or manually rate.
         // We blur input to allow shortcuts (Space/1/2/3/4) to work if they want to proceed.
@@ -219,7 +217,7 @@ export function Flashcard({
     }
   };
 
-    // Global Keyboard Shortcuts (Space to Pass)
+  // Global Keyboard Shortcuts (Space to Pass)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in a real text field, UNLESS it's our ghost input and we want to pass
@@ -239,21 +237,21 @@ export function Flashcard({
         // Let's allow Space to pass IF:
         // 1. Card is already revealed (so typing is done/irrelevant for checking)
         // 2. OR if card is not revealed but we are in ghost mode and word has no spaces? (Risky)
-        
+
         // Actually, the user complaint "cannot space pass" likely refers to when they are STUCK or DONE typing.
         // If they are typing, Space puts a space.
         // If they want to pass, they might try to hit Space.
-        
+
         // Let's just allow Space to trigger "Know/Rate" if revealed.
         if (isRevealed || alwaysShowContent) {
-           // If focused in input, Space will type a space. We need to preventDefault.
-           e.preventDefault();
-           if (onKnow) {
-             onKnow();
-           } else if (onRate) {
-             // Default to Good (3) for spacebar pass
-             onRate(Rating.Good);
-           }
+          // If focused in input, Space will type a space. We need to preventDefault.
+          e.preventDefault();
+          if (onKnow) {
+            onKnow();
+          } else if (onRate) {
+            // Default to Good (3) for spacebar pass
+            onRate(Rating.Good);
+          }
         }
       }
     };
@@ -267,45 +265,45 @@ export function Flashcard({
     if (e.key === 'Enter') {
       setTypedInput('');
     }
-    
+
     // Handle Space key conflict
     if (e.code === 'Space') {
-        // If the card is already revealed/done, Space should be handled by global handler to PASS
-        if (isRevealed) {
-            // Let global handler take it (it prevents default)
-            // But we need to ensure this handler doesn't stop propagation?
-            // Actually, React synthetic events bubble. Global window listener captures/bubbles.
-            // We just need to NOT prevent default here if we want global to handle it?
-            // No, if we want global to handle it, we should probably prevent default here to stop input?
-            // The global handler is on window, so it runs too.
-            // Let's just handle it here for safety if focused.
-             e.preventDefault();
-             if (onKnow) onKnow();
-             else if (onRate) onRate(Rating.Good);
-             return;
-        }
+      // If the card is already revealed/done, Space should be handled by global handler to PASS
+      if (isRevealed) {
+        // Let global handler take it (it prevents default)
+        // But we need to ensure this handler doesn't stop propagation?
+        // Actually, React synthetic events bubble. Global window listener captures/bubbles.
+        // We just need to NOT prevent default here if we want global to handle it?
+        // No, if we want global to handle it, we should probably prevent default here to stop input?
+        // The global handler is on window, so it runs too.
+        // Let's just handle it here for safety if focused.
+        e.preventDefault();
+        if (onKnow) onKnow();
+        else if (onRate) onRate(Rating.Good);
+        return;
+      }
 
-        const nextCharIndex = typedInput.length;
-        const expectedChar = card.word[nextCharIndex];
-        
-        // If Space is NOT the next expected character, treat it as a Reveal trigger (or Pass if we want)
-        // User said "space pass card". Usually pass means "I know it" or "Next".
-        // If not revealed, Space usually reveals.
-        if (expectedChar !== ' ') {
-            e.preventDefault(); 
-            if (!isRevealed) {
-                handleReveal(true); // Force reveal
-            }
-            return;
+      const nextCharIndex = typedInput.length;
+      const expectedChar = card.word[nextCharIndex];
+
+      // If Space is NOT the next expected character, treat it as a Reveal trigger (or Pass if we want)
+      // User said "space pass card". Usually pass means "I know it" or "Next".
+      // If not revealed, Space usually reveals.
+      if (expectedChar !== ' ') {
+        e.preventDefault();
+        if (!isRevealed) {
+          handleReveal(true); // Force reveal
         }
+        return;
+      }
     }
-    
+
     // Fix: When card is revealed, prioritize global shortcuts (1, 2, 3, 4)
     if (isRevealed) {
-        if (['1', '2', '3', '4'].includes(e.key)) {
-            e.preventDefault(); 
-            return;
-        }
+      if (['1', '2', '3', '4'].includes(e.key)) {
+        e.preventDefault();
+        return;
+      }
     }
   };
 
@@ -414,8 +412,8 @@ export function Flashcard({
   // Auto-play when card word changes
   useEffect(() => {
     const timer = setTimeout(() => {
-        speakWord();
-    }, 100); 
+      speakWord();
+    }, 100);
     return () => clearTimeout(timer);
   }, [speakWord]);
 
@@ -429,28 +427,28 @@ export function Flashcard({
     e.preventDefault();
     e.stopPropagation();
     setResizeInProgress(true);
-    
+
     const startX = e.clientX;
     const startY = e.clientY;
-    
+
     if (!cardRef.current) return;
     const startWidth = cardRef.current.offsetWidth;
     const startHeight = cardRef.current.offsetHeight;
 
     const onMove = (moveEvent: PointerEvent) => {
-        const newWidth = startWidth + (moveEvent.clientX - startX);
-        const newHeight = startHeight + (moveEvent.clientY - startY);
-        // Set min limits
-        setSize({ 
-            width: Math.max(320, newWidth), 
-            height: Math.max(400, newHeight) 
-        });
+      const newWidth = startWidth + (moveEvent.clientX - startX);
+      const newHeight = startHeight + (moveEvent.clientY - startY);
+      // Set min limits
+      setSize({
+        width: Math.max(320, newWidth),
+        height: Math.max(400, newHeight)
+      });
     };
 
     const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        setResizeInProgress(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setResizeInProgress(false);
     };
 
     window.addEventListener('pointermove', onMove);
@@ -458,26 +456,26 @@ export function Flashcard({
   };
 
   return (
-    <motion.div 
+    <motion.div
       ref={cardRef}
       drag={!resizeInProgress}
       dragMomentum={false}
-      initial={{ 
-        x: initialPosition?.x || 0, 
-        y: initialPosition?.y || 0 
+      initial={{
+        x: initialPosition?.x || 0,
+        y: initialPosition?.y || 0
       }}
       onDragEnd={(_, info) => {
         const currentX = (initialPosition?.x || 0) + info.offset.x;
         const currentY = (initialPosition?.y || 0) + info.offset.y;
-        onPositionChange?.({ 
-          point: info.point, 
-          transform: { x: currentX, y: currentY } 
+        onPositionChange?.({
+          point: info.point,
+          transform: { x: currentX, y: currentY }
         });
       }}
       whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
-      className="relative cursor-grab group perspective-1000" 
-      style={{ 
-        width: size.width, 
+      className="relative cursor-grab group perspective-1000"
+      style={{
+        width: size.width,
         height: size.height,
         x: initialPosition?.x,
         y: initialPosition?.y
@@ -488,130 +486,130 @@ export function Flashcard({
         "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500",
         "hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:border-white/20"
       )}>
-        
+
         {/* Ambient Light Effects */}
         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
 
         {/* Resize Handle */}
-        <div 
-            className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize z-50 flex items-end justify-end p-2 group/resize"
-            onPointerDown={initResize}
-            onClick={(e) => e.stopPropagation()}
+        <div
+          className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize z-50 flex items-end justify-end p-2 group/resize"
+          onPointerDown={initResize}
+          onClick={(e) => e.stopPropagation()}
         >
-            <div className="w-3 h-3 border-r-2 border-b-2 border-white/20 group-hover/resize:border-white/60 rounded-br-sm transition-colors" />
+          <div className="w-3 h-3 border-r-2 border-b-2 border-white/20 group-hover/resize:border-white/60 rounded-br-sm transition-colors" />
         </div>
 
         {/* Left Toolbar - Keyboard & AI */}
         <div className="absolute top-6 left-6 z-30 flex flex-col gap-3">
-           {/* Ghost Mode Toggle */}
-           <button
+          {/* Ghost Mode Toggle */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsGhostMode(!isGhostMode);
+              if (!isGhostMode) {
+                setTimeout(() => inputRef.current?.focus(), 0);
+              }
+            }}
+            className={cn(
+              "p-2.5 rounded-full transition-all duration-300 backdrop-blur-md border shadow-lg",
+              isGhostMode
+                ? "bg-blue-500/20 border-blue-400/30 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                : "bg-black/20 border-white/10 text-white/40 hover:text-white/60"
+            )}
+            title={isGhostMode ? "关闭拼写模式" : "开启拼写模式"}
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+
+          {/* AI Enrich Button */}
+          {(isRevealed || alwaysShowContent) && (
+            <motion.button
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
               onClick={(e) => {
                 e.stopPropagation();
-                setIsGhostMode(!isGhostMode);
-                if (!isGhostMode) {
-                  setTimeout(() => inputRef.current?.focus(), 0);
-                }
+                onEnrich?.();
               }}
               className={cn(
                 "p-2.5 rounded-full transition-all duration-300 backdrop-blur-md border shadow-lg",
-                isGhostMode 
-                  ? "bg-blue-500/20 border-blue-400/30 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.2)]" 
-                  : "bg-black/20 border-white/10 text-white/40 hover:text-white/60"
+                "bg-black/20 border-white/10 text-yellow-400/80 hover:text-yellow-400 hover:bg-white/10",
+                isEnriching && "animate-spin"
               )}
-              title={isGhostMode ? "关闭拼写模式" : "开启拼写模式"}
+              title="AI 生成/优化"
             >
-              <Keyboard className="w-4 h-4" />
-            </button>
-
-            {/* AI Enrich Button */}
-            {(isRevealed || alwaysShowContent) && (
-              <motion.button 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEnrich?.();
-                }}
-                className={cn(
-                  "p-2.5 rounded-full transition-all duration-300 backdrop-blur-md border shadow-lg",
-                  "bg-black/20 border-white/10 text-yellow-400/80 hover:text-yellow-400 hover:bg-white/10",
-                  isEnriching && "animate-spin"
-                )}
-                title="AI 生成/优化"
-              >
-                <Sparkles className="w-4 h-4" />
-              </motion.button>
-            )}
+              <Sparkles className="w-4 h-4" />
+            </motion.button>
+          )}
         </div>
 
         {/* Right Toolbar - Status Only (Tools Removed) */}
         <div className="absolute top-6 right-6 z-30 flex flex-col gap-3 items-end">
-           {(isRevealed || alwaysShowContent) && (
-              <motion.div 
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex flex-col gap-3 items-end"
-              >
-                {/* Group 1: Status */}
-                <div className="flex bg-black/30 rounded-full p-1 backdrop-blur-md border border-white/5 shadow-lg">
-                  <button
-                    onClick={handleToggleImportant}
-                    className={cn(
-                      "p-2 rounded-full hover:bg-white/10 transition-colors",
-                      card.isImportant ? "text-red-500" : "text-white/40 hover:text-white/60"
-                    )}
-                    title={card.isImportant ? "取消重点" : "标记为重点"}
-                  >
-                    <Heart className={cn("w-4 h-4", card.isImportant && "fill-current")} />
-                  </button>
-                  <div className="w-px bg-white/10 my-1 mx-0.5" />
-                  <button
-                    onClick={handleToggleFamiliar}
-                    className={cn(
-                      "p-2 rounded-full hover:bg-white/10 transition-colors",
-                      card.isFamiliar ? "text-green-400" : "text-white/40 hover:text-white/60"
-                    )}
-                    title={card.isFamiliar ? "取消熟悉标记" : "标记为熟悉"}
-                  >
-                    <CheckCircle className={cn("w-4 h-4", card.isFamiliar && "fill-current")} />
-                  </button>
-                </div>
-              </motion.div>
-           )}
+          {(isRevealed || alwaysShowContent) && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex flex-col gap-3 items-end"
+            >
+              {/* Group 1: Status */}
+              <div className="flex bg-black/30 rounded-full p-1 backdrop-blur-md border border-white/5 shadow-lg">
+                <button
+                  onClick={handleToggleImportant}
+                  className={cn(
+                    "p-2 rounded-full hover:bg-white/10 transition-colors",
+                    card.isImportant ? "text-red-500" : "text-white/40 hover:text-white/60"
+                  )}
+                  title={card.isImportant ? "取消重点" : "标记为重点"}
+                >
+                  <Heart className={cn("w-4 h-4", card.isImportant && "fill-current")} />
+                </button>
+                <div className="w-px bg-white/10 my-1 mx-0.5" />
+                <button
+                  onClick={handleToggleFamiliar}
+                  className={cn(
+                    "p-2 rounded-full hover:bg-white/10 transition-colors",
+                    card.isFamiliar ? "text-green-400" : "text-white/40 hover:text-white/60"
+                  )}
+                  title={card.isFamiliar ? "取消熟悉标记" : "标记为熟悉"}
+                >
+                  <CheckCircle className={cn("w-4 h-4", card.isFamiliar && "fill-current")} />
+                </button>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Word Section (Top/Center) */}
         <div className={cn(
-            "flex flex-col items-center justify-center transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]",
-            (isRevealed || alwaysShowContent) ? "min-h-[160px] pt-12 pb-8" : "h-full"
+          "flex flex-col items-center justify-center transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]",
+          (isRevealed || alwaysShowContent) ? "min-h-[160px] pt-12 pb-8" : "h-full"
         )}>
           <div className="relative group/word mb-4 max-w-full px-8 py-4 transition-all duration-500">
-            <motion.div 
+            <motion.div
               animate={isShaking ? { x: [-5, 5, -5, 5, 0] } : {}}
               transition={{ duration: 0.4 }}
               className="flex items-center justify-center gap-1 relative z-20 flex-wrap"
             >
-              <h2 
+              <h2
                 className={cn(
                   "font-black tracking-tighter text-center flex items-center justify-center gap-1 cursor-pointer select-none active:scale-95 transition-all duration-300 flex-wrap break-words",
                   (() => {
-                      const len = card.word.length;
-                      const isLarge = isRevealed || alwaysShowContent;
-                      if (len > 14) return isLarge ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl";
-                      if (len > 10) return isLarge ? "text-4xl md:text-5xl" : "text-3xl md:text-4xl";
-                      if (len > 7) return isLarge ? "text-5xl md:text-6xl" : "text-4xl md:text-5xl";
-                      return isLarge ? "text-6xl md:text-7xl" : "text-5xl md:text-6xl";
+                    const len = card.word.length;
+                    const isLarge = isRevealed || alwaysShowContent;
+                    if (len > 14) return isLarge ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl";
+                    if (len > 10) return isLarge ? "text-4xl md:text-5xl" : "text-3xl md:text-4xl";
+                    if (len > 7) return isLarge ? "text-5xl md:text-6xl" : "text-4xl md:text-5xl";
+                    return isLarge ? "text-6xl md:text-7xl" : "text-5xl md:text-6xl";
                   })(),
-                  (isRevealed || alwaysShowContent) ? "bg-gradient-to-br from-white via-white to-white/50 bg-clip-text text-transparent drop-shadow-2xl" : "text-white"
+                  (isRevealed || alwaysShowContent) ? "bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent drop-shadow-lg" : "text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
                 )}
-                onClick={async (e) => { 
-                  e.stopPropagation(); 
+                onClick={async (e) => {
+                  e.stopPropagation();
                   if (!card.syllables && onGenerateSyllables && !isGeneratingSyllables) {
-                     setIsGeneratingSyllables(true);
-                     try { await onGenerateSyllables(card); } finally { setIsGeneratingSyllables(false); }
+                    setIsGeneratingSyllables(true);
+                    try { await onGenerateSyllables(card); } finally { setIsGeneratingSyllables(false); }
                   }
-                  setShowSplit(!showSplit); 
+                  setShowSplit(!showSplit);
                   if (isGhostMode) setTimeout(() => inputRef.current?.focus(), 50);
                 }}
               >
@@ -621,7 +619,7 @@ export function Flashcard({
 
                   return syllabifiedWord.split('').map((char: string, index: number) => {
                     if (char === '·') {
-                      if (!showSplit) return null; 
+                      if (!showSplit) return null;
                       return <span key={index} className="text-white/20 mx-[1px] font-light">·</span>;
                     }
 
@@ -632,19 +630,19 @@ export function Flashcard({
                     rawIndex++;
 
                     return (
-                      <span 
-                        key={index} 
+                      <span
+                        key={index}
                         className={cn(
                           "relative transition-all duration-300 min-w-[1rem] text-center",
-                          !isGhostMode 
-                            ? "text-white" 
-                            : currentIsTyped 
-                              ? "text-transparent bg-clip-text bg-gradient-to-b from-blue-300 to-blue-500 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]" 
+                          !isGhostMode
+                            ? "text-white"
+                            : currentIsTyped
+                              ? "text-transparent bg-clip-text bg-gradient-to-b from-blue-300 to-blue-500 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]"
                               : isRevealed
                                 ? "text-white"
                                 : (alwaysShowContent)
-                                  ? "text-white/40 blur-[0.5px]" 
-                                  : "text-white/10 blur-[1px]" 
+                                  ? "text-white/40 blur-[0.5px]"
+                                  : "text-white/10 blur-[1px]"
                         )}
                       >
                         {char}
@@ -653,7 +651,7 @@ export function Flashcard({
                             className="absolute -bottom-2 left-0 w-full h-[3px] bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]"
                             initial={{ opacity: 0, scale: 0.5 }}
                             animate={{ opacity: [0.5, 1, 0.5], scale: 1 }}
-                            transition={{ 
+                            transition={{
                               duration: 0.2,
                               opacity: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }
                             }}
@@ -664,8 +662,8 @@ export function Flashcard({
                   });
                 })()}
               </h2>
-              
-              <button 
+
+              <button
                 onClick={handleSpeak}
                 className="ml-4 p-3 rounded-full bg-white/5 hover:bg-white/10 text-white/80 transition-colors relative z-20 backdrop-blur-sm"
                 title="朗读单词"
@@ -673,7 +671,7 @@ export function Flashcard({
                 <Volume2 className="w-6 h-6" />
               </button>
             </motion.div>
-            
+
             {/* Ghost Input */}
             <input
               ref={inputRef}
@@ -691,15 +689,15 @@ export function Flashcard({
               spellCheck="false"
             />
           </div>
-          
+
           {/* Hint */}
           {(!isRevealed && !alwaysShowContent) && (
-            <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-8 text-white/40 flex items-center gap-2 text-sm font-medium tracking-widest uppercase"
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-8 text-white/40 flex items-center gap-2 text-sm font-medium tracking-widest uppercase"
             >
-                <Eye className="w-4 h-4" /> 点击查看释义
+              <Eye className="w-4 h-4" /> 点击查看释义
             </motion.div>
           )}
         </div>
@@ -718,403 +716,407 @@ export function Flashcard({
               {/* Minimal Tabs */}
               <div className="flex items-center justify-center gap-4 mb-6 shrink-0">
                 <button
-                    onClick={(e) => { e.stopPropagation(); setActiveTab('meaning'); }}
-                    className={cn(
-                        "relative px-4 py-2 text-sm font-bold transition-all duration-300",
-                        activeTab === 'meaning' ? "text-white" : "text-white/40 hover:text-white/80"
-                    )}
+                  onClick={(e) => { e.stopPropagation(); setActiveTab('meaning'); }}
+                  className={cn(
+                    "relative px-4 py-2 text-sm font-bold transition-all duration-300 rounded-full",
+                    activeTab === 'meaning'
+                      ? "bg-white/10 text-white shadow-inner"
+                      : "text-white/40 hover:text-white/80 hover:bg-white/5"
+                  )}
                 >
-                    释义
-                    {activeTab === 'meaning' && (
-                      <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-                    )}
+                  释义
+                  {activeTab === 'meaning' && (
+                    <motion.div layoutId="activeTab" className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-400/80 rounded-full blur-[1px]" />
+                  )}
                 </button>
-                
-                 <Reorder.Group axis="x" values={tabs} onReorder={setTabs} className="flex gap-4">
-                    {tabs.map(tab => (
-                        <Reorder.Item key={tab.id} value={tab}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setActiveTab(tab.id as any); }}
-                                className={cn(
-                                "relative px-4 py-2 text-sm font-bold transition-all duration-300",
-                                activeTab === tab.id ? "text-white" : "text-white/40 hover:text-white/80"
-                                )}
-                            >
-                                {tab.label}
-                                {activeTab === tab.id && (
-                                  <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-                                )}
-                            </button>
-                        </Reorder.Item>
-                    ))}
-                 </Reorder.Group>
+
+                <Reorder.Group axis="x" values={tabs} onReorder={setTabs} className="flex gap-4">
+                  {tabs.map(tab => (
+                    <Reorder.Item key={tab.id} value={tab}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveTab(tab.id as any); }}
+                        className={cn(
+                          "relative px-4 py-2 text-sm font-bold transition-all duration-300 rounded-full",
+                          activeTab === tab.id
+                            ? "bg-white/10 text-white shadow-inner"
+                            : "text-white/40 hover:text-white/80 hover:bg-white/5"
+                        )}
+                      >
+                        {tab.label}
+                        {activeTab === tab.id && (
+                          <motion.div layoutId="activeTab" className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-400/80 rounded-full blur-[1px]" />
+                        )}
+                      </button>
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
               </div>
 
               {/* Content Area */}
               <div className="flex-1 overflow-y-auto no-scrollbar pb-40 px-4">
-                  <AnimatePresence mode="wait">
-                    {activeTab === 'meaning' && (
-                      <motion.div
-                        key="meaning"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-inner group/item relative backdrop-blur-sm">
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground opacity-50">释义</h4>
-                            <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                <button
-                                  onClick={handleGenerateMeaningClick}
-                                  className={cn(
-                                    "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 text-blue-300",
-                                    isGeneratingMeaning && "animate-spin"
-                                  )}
-                                  title="重新生成"
-                                >
-                                  <RefreshCw className="w-3 h-3" />
-                                </button>
-                                {!isEditingMeaning ? (
-                                    <button
-                                        onClick={() => {
-                                            setIsEditingMeaning(true);
-                                            setTimeout(() => meaningInputRef.current?.focus(), 0);
-                                        }}
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 text-blue-300"
-                                        title="编辑释义"
-                                    >
-                                        <Edit3 className="w-3 h-3" />
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={handleSaveMeaning}
-                                        className="p-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-xs flex items-center gap-1 text-green-300"
-                                        title="保存释义"
-                                    >
-                                        <Save className="w-3 h-3" />
-                                    </button>
-                                )}
-                            </div>
-                          </div>
-                          
-                          {isEditingMeaning ? (
-                              <textarea
-                                  ref={meaningInputRef}
-                                  value={meaningContent}
-                                  onChange={(e) => setMeaningContent(e.target.value)}
-                                  onBlur={handleSaveMeaning}
-                                  className="w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xl font-medium text-white/90 focus:outline-none focus:border-blue-500/50 transition-colors resize-none"
-                                  rows={3}
-                              />
-                          ) : (
-                              <div 
-                                  className="text-xl font-medium text-white/90 cursor-text leading-relaxed"
-                                  onDoubleClick={() => {
-                                      setIsEditingMeaning(true);
-                                      setTimeout(() => meaningInputRef.current?.focus(), 0);
-                                  }}
-                              >
-                                  <FormattedText content={card.meaning || ''} />
-                              </div>
-                          )}
-                          
-                          {/* Roots/Affixes Section (Merged) */}
-                          {(card.roots || isGeneratingRoots) && (
-                            <div className="mt-6 pt-6 border-t border-white/5">
-                                <h4 className="text-xs uppercase tracking-wider text-muted-foreground opacity-50 mb-3 flex items-center gap-2">
-                                    <Sprout className="w-3 h-3" /> 词根词缀
-                                </h4>
-                                {isGeneratingRoots ? (
-                                    <div className="flex items-center gap-2 text-sm text-white/40 animate-pulse">
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                        正在分析词源...
-                                    </div>
-                                ) : card.roots && card.roots.length > 0 ? (
-                                    <div className="grid gap-2">
-                                        {card.roots.map((root, i) => (
-                                            <div key={i} className="flex items-start gap-3 p-2 rounded-lg bg-black/20 border border-white/5">
-                                                <span className="text-sm font-bold text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0 font-mono">
-                                                    {root.root}
-                                                </span>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-sm text-white/80 font-medium">{root.meaning}</div>
-                                                    <div className="text-xs text-white/40 mt-0.5">{root.description}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-sm text-white/30 italic">无词根信息</div>
-                                )}
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {activeTab === 'example' && (
-                      <motion.div
-                        key="example"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <div className="bg-white/5 p-6 rounded-2xl border border-white/5 group/item relative h-full backdrop-blur-sm flex flex-col">
-                          <div className="flex justify-between items-start mb-4 shrink-0">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
-                              <BookOpen className="w-3 h-3" /> 例句
-                            </h4>
-                            <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                              {/* Bridging Example Button */}
-                              {semanticNeighbors && semanticNeighbors.length > 0 && onGenerateBridgingExample && (
-                                  <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        // Pick the first neighbor for now
-                                        const target = semanticNeighbors[0];
-                                        // Assuming 'related' as generic relation if not known
-                                        onGenerateBridgingExample(card, target.word, "related");
-                                    }}
-                                    className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-xs flex items-center gap-1 text-blue-300"
-                                    title={`生成与 ${semanticNeighbors[0].word} 的关联例句`}
-                                  >
-                                    <Link2 className="w-3 h-3" />
-                                  </button>
+                <AnimatePresence mode="wait">
+                  {activeTab === 'meaning' && (
+                    <motion.div
+                      key="meaning"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-inner group/item relative backdrop-blur-sm">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="text-xs uppercase tracking-wider text-muted-foreground opacity-50">释义</h4>
+                          <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            <button
+                              onClick={handleGenerateMeaningClick}
+                              className={cn(
+                                "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 text-blue-300",
+                                isGeneratingMeaning && "animate-spin"
                               )}
+                              title="重新生成"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                            {!isEditingMeaning ? (
                               <button
-                                onClick={handleGenerateExampleClick}
-                                className={cn(
-                                  "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1",
-                                  isGeneratingExample && "animate-spin"
-                                )}
-                                title="AI 生成例句"
+                                onClick={() => {
+                                  setIsEditingMeaning(true);
+                                  setTimeout(() => meaningInputRef.current?.focus(), 0);
+                                }}
+                                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 text-blue-300"
+                                title="编辑释义"
                               >
-                                <RefreshCw className="w-3 h-3" />
+                                <Edit3 className="w-3 h-3" />
                               </button>
-                            </div>
+                            ) : (
+                              <button
+                                onClick={handleSaveMeaning}
+                                className="p-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-xs flex items-center gap-1 text-green-300"
+                                title="保存释义"
+                              >
+                                <Save className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
-                          {card.example ? (
-                            <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2">
-                              <p className="text-lg opacity-90 italic text-white/90 leading-relaxed font-serif">
-                                <FormattedText content={card.example} />
-                              </p>
-                              {card.exampleMeaning && (
-                                <p className="text-sm text-white/60 border-t border-white/5 pt-4 mt-4">{card.exampleMeaning}</p>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-white/30 italic h-full flex items-center justify-center">暂无例句，点击右上角生成</div>
-                          )}
                         </div>
-                      </motion.div>
-                    )}
 
-                     {activeTab === 'mnemonic' && (
-                      <motion.div
-                        key="mnemonic"
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <div className="bg-white/5 p-5 rounded-2xl border border-white/5 group/item relative h-full backdrop-blur-sm">
-                          <div className="flex justify-between items-center mb-4">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
-                              <BrainCircuit className="w-3 h-3" /> 助记
+                        {isEditingMeaning ? (
+                          <textarea
+                            ref={meaningInputRef}
+                            value={meaningContent}
+                            onChange={(e) => setMeaningContent(e.target.value)}
+                            onBlur={handleSaveMeaning}
+                            className="w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xl font-medium text-white/90 focus:outline-none focus:border-blue-500/50 transition-colors resize-none"
+                            rows={3}
+                          />
+                        ) : (
+                          <div
+                            className="text-xl font-medium text-white/90 cursor-text leading-relaxed"
+                            onDoubleClick={() => {
+                              setIsEditingMeaning(true);
+                              setTimeout(() => meaningInputRef.current?.focus(), 0);
+                            }}
+                          >
+                            <FormattedText content={card.meaning || ''} />
+                          </div>
+                        )}
+
+                        {/* Roots/Affixes Section (Merged) */}
+                        {(card.roots || isGeneratingRoots) && (
+                          <div className="mt-6 pt-6 border-t border-white/5">
+                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground opacity-50 mb-3 flex items-center gap-2">
+                              <Sprout className="w-3 h-3" /> 词根词缀
                             </h4>
-                            <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            {isGeneratingRoots ? (
+                              <div className="flex items-center gap-2 text-sm text-white/40 animate-pulse">
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                正在分析词源...
+                              </div>
+                            ) : card.roots && card.roots.length > 0 ? (
+                              <div className="grid gap-2">
+                                {card.roots.map((root, i) => (
+                                  <div key={i} className="flex items-start gap-3 p-2 rounded-lg bg-black/20 border border-white/5">
+                                    <span className="text-sm font-bold text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0 font-mono">
+                                      {root.root}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm text-white/80 font-medium">{root.meaning}</div>
+                                      <div className="text-xs text-white/40 mt-0.5">{root.description}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-white/30 italic">无词根信息</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'example' && (
+                    <motion.div
+                      key="example"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="bg-white/5 p-6 rounded-2xl border border-white/5 group/item relative h-full backdrop-blur-sm flex flex-col">
+                        <div className="flex justify-between items-start mb-4 shrink-0">
+                          <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
+                            <BookOpen className="w-3 h-3" /> 例句
+                          </h4>
+                          <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            {/* Bridging Example Button */}
+                            {semanticNeighbors && semanticNeighbors.length > 0 && onGenerateBridgingExample && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  playClickSound();
-                                  handleGenerateMnemonicClick(e);
+                                  // Pick the first neighbor for now
+                                  const target = semanticNeighbors[0];
+                                  // Assuming 'related' as generic relation if not known
+                                  onGenerateBridgingExample(card, target.word, "related");
                                 }}
-                                className={cn(
-                                  "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1",
-                                  isGeneratingMnemonic && "animate-spin"
-                                )}
+                                className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-xs flex items-center gap-1 text-blue-300"
+                                title={`生成与 ${semanticNeighbors[0].word} 的关联例句`}
                               >
-                                <RefreshCw className="w-3 h-3" />
+                                <Link2 className="w-3 h-3" />
                               </button>
-                            </div>
+                            )}
+                            <button
+                              onClick={handleGenerateExampleClick}
+                              className={cn(
+                                "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1",
+                                isGeneratingExample && "animate-spin"
+                              )}
+                              title="AI 生成例句"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
                           </div>
-                          
-                          {card.mnemonic ? (() => {
-                              let mnemonics: any[] = [];
-                              let isStructured = false;
-                              try {
-                                  const parsed = JSON.parse(card.mnemonic);
-                                  if (Array.isArray(parsed)) {
-                                      mnemonics = parsed;
-                                      isStructured = true;
-                                  }
-                              } catch (e) { }
-
-                              if (isStructured) {
-                                  return (
-                                      <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 max-h-[300px]">
-                                          {mnemonics.map((m, i) => (
-                                              <div key={i} className="bg-black/20 rounded-xl p-3 border border-white/5 hover:bg-black/30 transition-colors">
-                                                  <div className="flex justify-between items-start mb-1">
-                                                      <span className="text-xs font-bold text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded">
-                                                        {m.title || m.method || '记忆法'}
-                                                      </span>
-                                                  </div>
-                                                  <p className="text-sm text-white/90 mb-1">
-                                                    <FormattedText content={m.content || m.text || ''} />
-                                                  </p>
-                                                  {m.explanation && <p className="text-xs text-white/50">{m.explanation}</p>}
-                                              </div>
-                                          ))}
-                                      </div>
-                                  );
-                              }
-                              return <p className="text-white/80 leading-relaxed"><FormattedText content={card.mnemonic} /></p>;
-                          })() : (
-                              <div className="text-sm text-white/30 italic h-full flex items-center justify-center">暂无助记，点击右上角生成</div>
-                          )}
                         </div>
-                      </motion.div>
-                    )}
-                    
-                    {/* Roots Nebula Visualization */}
-                    {activeTab === 'roots' && (
-                         <motion.div
-                          key="roots"
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          className="h-full flex flex-col"
-                         >
-                             <div className="bg-white/5 p-5 rounded-2xl border border-white/5 h-full backdrop-blur-sm flex flex-col relative overflow-hidden group/roots">
-                                 <div className="flex justify-between items-center mb-4 z-10">
-                                    <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
-                                        <Sprout className="w-3 h-3" /> 词根星云 (Root Nebula)
-                                    </h4>
-                                    <button
-                                        onClick={handleGenerateRootsClick}
-                                        className={cn(
-                                            "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 opacity-0 group-hover/roots:opacity-100 transition-opacity",
-                                            isGeneratingRoots && "animate-spin"
-                                        )}
-                                    >
-                                        <RefreshCw className="w-3 h-3" />
-                                    </button>
-                                 </div>
-
-                                 {card.roots && card.roots.length > 0 ? (
-                                     <div className="flex-1 relative overflow-y-auto custom-scrollbar">
-                                         {card.roots.map((rootItem, idx) => (
-                                             <div key={idx} className="mb-12 last:mb-0 relative min-h-[200px] flex items-center justify-center">
-                                                 {/* Nebula Background Effect */}
-                                                 <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full scale-75" />
-                                                 
-                                                 {/* Solar System Layout */}
-                                                 <div className="relative w-full max-w-[300px] aspect-square flex items-center justify-center">
-                                                     {/* Core (Root) */}
-                                                     <div className="absolute z-10 w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 backdrop-blur-md flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
-                                                         <span className="text-lg font-bold text-white">{rootItem.root}</span>
-                                                         <span className="text-[10px] text-white/50">{rootItem.meaning}</span>
-                                                     </div>
-
-                                                     {/* Orbiting Cognates */}
-                                                     {rootItem.cognates && rootItem.cognates.map((cognate, cIdx) => {
-                                                         const total = rootItem.cognates!.length;
-                                                         const angle = (cIdx / total) * 2 * Math.PI;
-                                                         const radius = 80; // Distance from center
-                                                         const x = Math.cos(angle) * radius;
-                                                         const y = Math.sin(angle) * radius;
-                                                         
-                                                         return (
-                                                             <motion.div
-                                                                 key={cognate}
-                                                                 initial={{ opacity: 0, scale: 0 }}
-                                                                 animate={{ opacity: 1, scale: 1 }}
-                                                                 transition={{ delay: cIdx * 0.1 }}
-                                                                 className="absolute w-auto px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/80 backdrop-blur-md cursor-pointer hover:bg-white/15 hover:scale-110 transition-all shadow-sm"
-                                                                 style={{
-                                                                     transform: `translate(${x}px, ${y}px)`,
-                                                                 }}
-                                                                 onClick={(e) => {
-                                                                     e.stopPropagation();
-                                                                     onSemanticNeighborClick?.(cognate);
-                                                                 }}
-                                                             >
-                                                                 {cognate}
-                                                             </motion.div>
-                                                         );
-                                                     })}
-                                                     
-                                                     {/* Orbit Rings */}
-                                                     <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.6] pointer-events-none" />
-                                                     <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.8] pointer-events-none border-dashed opacity-50" />
-                                                 </div>
-                                                 
-                                                 {/* Description at bottom */}
-                                                 <div className="absolute bottom-0 w-full text-center px-4">
-                                                     <p className="text-xs text-white/40">{rootItem.description}</p>
-                                                 </div>
-                                             </div>
-                                         ))}
-                                     </div>
-                                 ) : (
-                                     <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-3">
-                                         <Sprout className="w-8 h-8 opacity-50" />
-                                         <p className="text-sm">暂无词根星云数据</p>
-                                         <button 
-                                            onClick={handleGenerateRootsClick}
-                                            className="px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-xs text-white/80 transition-colors border border-white/5"
-                                         >
-                                             立即生成
-                                         </button>
-                                     </div>
-                                 )}
-                             </div>
-                         </motion.div>
-                    )}
-
-                    {/* Placeholder for other tabs */}
-                    {['phrases', 'derivatives'].includes(activeTab) && (
-                         <motion.div
-                          key={activeTab}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="h-full flex items-center justify-center text-white/30"
-                         >
-                             内容开发中...
-                         </motion.div>
-                    )}
-
-                  </AnimatePresence>
-
-                  {/* Semantic Neighbors (Bottom of Content) */}
-                  {semanticNeighbors.length > 0 && (
-                    <div className="mt-8 flex flex-col items-center border-t border-white/5 pt-6">
-                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">
-                        <Network className="w-3 h-3" /> 语义邻居
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-2">
-                        {semanticNeighbors.slice(0, 8).map(n => (
-                          <div 
-                            key={n.id} 
-                            className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/70 backdrop-blur-md shadow-sm hover:bg-white/10 hover:text-white transition-colors cursor-pointer active:scale-95 select-none" 
-                            title={n.meaning}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onSemanticNeighborClick?.(n.word);
-                            }}
-                            onMouseEnter={() => onSemanticNeighborHover?.(n.word)}
-                            onMouseLeave={() => onSemanticNeighborHover?.(null)}
-                          >
-                            {n.word}
+                        {card.example ? (
+                          <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2">
+                            <p className="text-lg opacity-90 italic text-white/90 leading-relaxed font-serif">
+                              <FormattedText content={card.example} />
+                            </p>
+                            {card.exampleMeaning && (
+                              <p className="text-sm text-white/60 border-t border-white/5 pt-4 mt-4">{card.exampleMeaning}</p>
+                            )}
                           </div>
-                        ))}
+                        ) : (
+                          <div className="text-sm text-white/30 italic h-full flex items-center justify-center">暂无例句，点击右上角生成</div>
+                        )}
                       </div>
-                    </div>
+                    </motion.div>
                   )}
-                  {/* Spacer for Floating Buttons - Handled by container padding */}
+
+                  {activeTab === 'mnemonic' && (
+                    <motion.div
+                      key="mnemonic"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="bg-white/5 p-5 rounded-2xl border border-white/5 group/item relative h-full backdrop-blur-sm">
+                        <div className="flex justify-between items-center mb-4">
+                          <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
+                            <BrainCircuit className="w-3 h-3" /> 助记
+                          </h4>
+                          <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                playClickSound();
+                                handleGenerateMnemonicClick(e);
+                              }}
+                              className={cn(
+                                "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1",
+                                isGeneratingMnemonic && "animate-spin"
+                              )}
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {card.mnemonic ? (() => {
+                          let mnemonics: any[] = [];
+                          let isStructured = false;
+                          try {
+                            const parsed = JSON.parse(card.mnemonic);
+                            if (Array.isArray(parsed)) {
+                              mnemonics = parsed;
+                              isStructured = true;
+                            }
+                          } catch (e) { }
+
+                          if (isStructured) {
+                            return (
+                              <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 max-h-[300px]">
+                                {mnemonics.map((m, i) => (
+                                  <div key={i} className="bg-black/20 rounded-xl p-3 border border-white/5 hover:bg-black/30 transition-colors">
+                                    <div className="flex justify-between items-start mb-1">
+                                      <span className="text-xs font-bold text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded">
+                                        {m.title || m.method || '记忆法'}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-white/90 mb-1">
+                                      <FormattedText content={m.content || m.text || ''} />
+                                    </p>
+                                    {m.explanation && <p className="text-xs text-white/50">{m.explanation}</p>}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return <p className="text-white/80 leading-relaxed"><FormattedText content={card.mnemonic} /></p>;
+                        })() : (
+                          <div className="text-sm text-white/30 italic h-full flex items-center justify-center">暂无助记，点击右上角生成</div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Roots Nebula Visualization */}
+                  {activeTab === 'roots' && (
+                    <motion.div
+                      key="roots"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="h-full flex flex-col"
+                    >
+                      <div className="bg-white/5 p-5 rounded-2xl border border-white/5 h-full backdrop-blur-sm flex flex-col relative overflow-hidden group/roots">
+                        <div className="flex justify-between items-center mb-4 z-10">
+                          <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
+                            <Sprout className="w-3 h-3" /> 词根星云 (Root Nebula)
+                          </h4>
+                          <button
+                            onClick={handleGenerateRootsClick}
+                            className={cn(
+                              "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 opacity-0 group-hover/roots:opacity-100 transition-opacity",
+                              isGeneratingRoots && "animate-spin"
+                            )}
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {card.roots && card.roots.length > 0 ? (
+                          <div className="flex-1 relative overflow-y-auto custom-scrollbar">
+                            {card.roots.map((rootItem, idx) => (
+                              <div key={idx} className="mb-12 last:mb-0 relative min-h-[200px] flex items-center justify-center">
+                                {/* Nebula Background Effect */}
+                                <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full scale-75" />
+
+                                {/* Solar System Layout */}
+                                <div className="relative w-full max-w-[300px] aspect-square flex items-center justify-center">
+                                  {/* Core (Root) */}
+                                  <div className="absolute z-10 w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 backdrop-blur-md flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+                                    <span className="text-lg font-bold text-white">{rootItem.root}</span>
+                                    <span className="text-[10px] text-white/50">{rootItem.meaning}</span>
+                                  </div>
+
+                                  {/* Orbiting Cognates */}
+                                  {rootItem.cognates && rootItem.cognates.map((cognate, cIdx) => {
+                                    const total = rootItem.cognates!.length;
+                                    const angle = (cIdx / total) * 2 * Math.PI;
+                                    const radius = 80; // Distance from center
+                                    const x = Math.cos(angle) * radius;
+                                    const y = Math.sin(angle) * radius;
+
+                                    return (
+                                      <motion.div
+                                        key={cognate}
+                                        initial={{ opacity: 0, scale: 0 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: cIdx * 0.1 }}
+                                        className="absolute w-auto px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/80 backdrop-blur-md cursor-pointer hover:bg-white/15 hover:scale-110 transition-all shadow-sm"
+                                        style={{
+                                          transform: `translate(${x}px, ${y}px)`,
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onSemanticNeighborClick?.(cognate);
+                                        }}
+                                      >
+                                        {cognate}
+                                      </motion.div>
+                                    );
+                                  })}
+
+                                  {/* Orbit Rings */}
+                                  <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.6] pointer-events-none" />
+                                  <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.8] pointer-events-none border-dashed opacity-50" />
+                                </div>
+
+                                {/* Description at bottom */}
+                                <div className="absolute bottom-0 w-full text-center px-4">
+                                  <p className="text-xs text-white/40">{rootItem.description}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-3">
+                            <Sprout className="w-8 h-8 opacity-50" />
+                            <p className="text-sm">暂无词根星云数据</p>
+                            <button
+                              onClick={handleGenerateRootsClick}
+                              className="px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-xs text-white/80 transition-colors border border-white/5"
+                            >
+                              立即生成
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Placeholder for other tabs */}
+                  {['phrases', 'derivatives'].includes(activeTab) && (
+                    <motion.div
+                      key={activeTab}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="h-full flex items-center justify-center text-white/30"
+                    >
+                      内容开发中...
+                    </motion.div>
+                  )}
+
+                </AnimatePresence>
+
+                {/* Semantic Neighbors (Bottom of Content) */}
+                {semanticNeighbors.length > 0 && (
+                  <div className="mt-8 flex flex-col items-center border-t border-white/5 pt-6">
+                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">
+                      <Network className="w-3 h-3" /> 语义邻居
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {semanticNeighbors.slice(0, 8).map(n => (
+                        <div
+                          key={n.id}
+                          className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/70 backdrop-blur-md shadow-sm hover:bg-white/10 hover:text-white transition-colors cursor-pointer active:scale-95 select-none"
+                          title={n.meaning}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSemanticNeighborClick?.(n.word);
+                          }}
+                          onMouseEnter={() => onSemanticNeighborHover?.(n.word)}
+                          onMouseLeave={() => onSemanticNeighborHover?.(null)}
+                        >
+                          {n.word}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Spacer for Floating Buttons - Handled by container padding */}
               </div>
 
             </motion.div>
@@ -1124,40 +1126,40 @@ export function Flashcard({
         {/* Floating Action Buttons (Overlay on Card) */}
         <AnimatePresence>
           {(isRevealed || alwaysShowContent) && (
-            <motion.div 
+            <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
-              className="absolute bottom-10 left-0 right-0 flex justify-center gap-4 z-50 pointer-events-none" 
+              className="absolute bottom-10 left-0 right-0 flex justify-center gap-4 z-50 pointer-events-none"
             >
-                <div className="pointer-events-auto flex gap-4">
-                  {/* FSRS Buttons are now handled externally via ReviewControls */}
-                  
-                  {/* Learn Buttons */}
-                  {!onRate && (onKnow || onForgot) && (
-                    <>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onForgot?.(); }}
-                        className="group/btn relative px-6 py-3 rounded-full bg-red-500/10 border border-red-500/20 text-red-200 font-bold backdrop-blur-xl shadow-lg hover:bg-red-500/20 active:scale-95 transition-all"
-                      >
-                        <div className="flex items-center gap-2">
-                          <RotateCcw className="w-4 h-4" />
-                          <span>不认识</span>
-                        </div>
-                      </button>
+              <div className="pointer-events-auto flex gap-4">
+                {/* FSRS Buttons are now handled externally via ReviewControls */}
 
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onKnow?.(); }}
-                        className="group/btn relative px-8 py-3 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-200 font-bold backdrop-blur-xl shadow-lg hover:bg-blue-500/20 active:scale-95 transition-all"
-                      >
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4" />
-                          <span>认识</span>
-                        </div>
-                      </button>
-                    </>
-                  )}
-                </div>
+                {/* Learn Buttons */}
+                {!onRate && (onKnow || onForgot) && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onForgot?.(); }}
+                      className="group/btn relative px-6 py-3 rounded-full bg-red-500/10 border border-red-500/20 text-red-200 font-bold backdrop-blur-xl shadow-lg hover:bg-red-500/20 active:scale-95 transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <RotateCcw className="w-4 h-4" />
+                        <span>不认识</span>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onKnow?.(); }}
+                      className="group/btn relative px-8 py-3 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-200 font-bold backdrop-blur-xl shadow-lg hover:bg-blue-500/20 active:scale-95 transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>认识</span>
+                      </div>
+                    </button>
+                  </>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
