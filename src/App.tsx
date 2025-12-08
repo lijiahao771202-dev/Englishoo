@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { AuthModal } from '@/components/AuthModal';
 import { Layout } from '@/components/Layout';
 import { Flashcard } from '@/components/Flashcard';
 import { ReviewControls } from '@/components/ReviewControls';
@@ -8,11 +10,11 @@ import { ReadingPractice } from '@/components/ReadingPractice';
 import { DeckList } from '@/components/DeckList';
 import { DeckDetail } from '@/components/DeckDetail';
 import { createNewWordCard, scheduleReview, Rating, getReviewPreviews } from '@/lib/fsrs';
-import { getDeckById, getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiveCards, initDB } from '@/lib/db';
+import { getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiveCards, initDB, SYSTEM_DECK_GUIDED } from '@/lib/data-source';
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, translateContent } from '@/lib/deepseek';
 import type { WordCard } from '@/types';
 import { type RecordLog } from 'ts-fsrs';
-import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initTTS } from '@/lib/tts';
 import { importTem8Deck } from '@/lib/import-tem8';
@@ -25,7 +27,6 @@ import KnowledgeGraph from '@/pages/KnowledgeGraph';
 import GuidedLearningSession from './pages/GuidedLearningSession';
 import ShadowingSession from './pages/ShadowingSession';
 import { DeckClusters } from '@/pages/DeckClusters';
-import { SYSTEM_DECK_GUIDED } from '@/lib/db';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
 import { ReviewDashboard } from '@/pages/ReviewDashboard';
 
@@ -39,7 +40,10 @@ type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 
  * 3. 数据初始化与状态管理 (IndexedDB, FSRS)
  * 4. 学习模式与复习模式的分流逻辑
  */
-function App() {
+function AppContent() {
+    const { user, isLoading: isAuthLoading, signOut } = useAuth();
+    const [showAuthModal, setShowAuthModal] = useState(false);
+
     // Navigation State
     const [view, setView] = useState<View>('decks');
     const [currentDeckId, setCurrentDeckId] = useState<string | null>(null);
@@ -853,6 +857,36 @@ function App() {
                 onApiKeyChange={setApiKey}
             />
 
+            {/* Auth Modal */}
+            <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+            {/* User Auth Button (Fixed Top Right) */}
+            <div className="fixed top-4 right-4 z-40">
+                {user ? (
+                    <div className="flex items-center gap-2">
+                        <div className="bg-white/10 border border-white/20 rounded-full px-4 py-2 text-sm text-white/80 backdrop-blur-md flex items-center gap-2">
+                            <User className="w-4 h-4" />
+                            <span className="max-w-[100px] truncate">{user.email}</span>
+                        </div>
+                        <button
+                            onClick={signOut}
+                            className="p-2 rounded-full bg-white/10 hover:bg-red-500/20 text-white/50 hover:text-red-400 transition-colors backdrop-blur-md border border-white/10"
+                            title="登出"
+                        >
+                            <LogOut className="w-4 h-4" />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setShowAuthModal(true)}
+                        className="px-4 py-2 rounded-full bg-white/10 hover:bg-blue-500/20 text-white/80 hover:text-blue-400 transition-colors backdrop-blur-md border border-white/20 flex items-center gap-2 text-sm font-medium"
+                    >
+                        <User className="w-4 h-4" />
+                        登录 / 注册
+                    </button>
+                )}
+            </div>
+
             <GlobalSelectionMenu />
             {/* Global Header */}
             <header className="flex justify-between items-center mb-8">
@@ -1259,6 +1293,15 @@ function App() {
                 </AnimatePresence>
             </main>
         </Layout>
+    );
+}
+
+// Wrapper component with AuthProvider
+function App() {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
     );
 }
 
