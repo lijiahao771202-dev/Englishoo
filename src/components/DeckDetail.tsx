@@ -4,9 +4,10 @@
  * 实现了分页加载、多维度筛选（已学、未学、熟悉、重点）以及液态玻璃 UI 风格。
  */
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { ArrowLeft, Plus, Search, Trash2, X, Eye, Heart, Activity, Network, Sparkles, ChevronDown, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Plus, Search, Trash2, X, Eye, Heart, Activity, Network, Sparkles, RefreshCw, BrainCircuit, Loader2, BookOpen } from 'lucide-react';
 import { Flashcard } from '@/components/Flashcard';
-import { getDeckById, getAllCards, getDueCards, getNewCards, deleteCard, getAllLogs, deleteDeck } from '@/lib/db';
+import { getDeckById, getAllCards, getDueCards, getNewCards, deleteCard, getAllLogs, deleteDeck } from '@/lib/data-source';
+import { EmbeddingService } from '@/lib/embedding';
 
 import type { Deck, WordCard } from '@/types';
 import { type ReviewLog } from 'ts-fsrs';
@@ -77,6 +78,9 @@ export function DeckDetail({
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [previewCardId, setPreviewCardId] = useState<string | null>(null);
   const [isPreviewFlipped, setIsPreviewFlipped] = useState(false);
+  // 构建知识图谱状态
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildProgress, setBuildProgress] = useState({ current: 0, total: 0, stage: '' });
 
   // New state for tabs and pagination
   const [activeTab, setActiveTab] = useState<TabType>('due');
@@ -162,6 +166,29 @@ export function DeckDetail({
       await loadData();
     }
   }
+
+  // 批量构建知识图谱（语义关联）
+  const handleBuildKnowledgeGraph = async () => {
+    if (isBuilding || cards.length === 0) return;
+    if (!confirm(`确定要为 ${cards.length} 个单词构建语义关联？\n这可能需要几分钟时间。`)) return;
+
+    setIsBuilding(true);
+    setBuildProgress({ current: 0, total: cards.length, stage: '初始化...' });
+
+    try {
+      const words = cards.map(c => c.word);
+      const service = EmbeddingService.getInstance();
+      await service.batchProcess(words, (current, total, stage) => {
+        setBuildProgress({ current, total, stage });
+      });
+      alert(`✅ 成功为 ${cards.length} 个单词构建了语义关联！`);
+    } catch (error) {
+      console.error('Failed to build knowledge graph:', error);
+      alert('构建失败，请查看控制台。');
+    } finally {
+      setIsBuilding(false);
+    }
+  };
 
   const filteredCards = useMemo(() => {
     let result = cards.filter(card =>
@@ -315,116 +342,172 @@ export function DeckDetail({
         </button>
       </motion.div>
 
-      {/* 1. HERO STUDY SECTION */}
+      {/* 1. HERO STUDY SECTION V2 (Immersive Dashboard) */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="glass-panel p-8 relative overflow-hidden group"
+        className="glass-panel p-0 relative overflow-hidden group min-h-[300px] flex flex-col"
       >
-        {/* Background Effect */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-500/20 to-purple-500/20 blur-3xl rounded-full translate-x-10 -translate-y-10 group-hover:bg-blue-500/30 transition-colors duration-700" />
+        {/* Animated Mesh Gradient Background */}
+        <div className="absolute inset-0 opacity-40 mix-blend-screen pointer-events-none">
+          <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_50%_50%,rgba(76,29,149,0.4),transparent_50%)] animate-[spin_20s_linear_infinite]" />
+          <div className="absolute top-[-20%] right-[-20%] w-[100%] h-[100%] bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.3),transparent_50%)] animate-[pulse_8s_ease-in-out_infinite]" />
+          <div className="absolute bottom-[-20%] left-[20%] w-[80%] h-[80%] bg-[radial-gradient(circle_at_50%_50%,rgba(236,72,153,0.3),transparent_50%)] animate-[bounce_10s_infinite]" />
+        </div>
 
-        <div className="relative z-10 flex flex-col gap-8">
-          {/* Stats Row */}
-          <div className="flex items-center justify-around">
-            <div className="text-center group/stat cursor-pointer" onClick={onOpenReviewDashboard || handleStartReview}>
-              <div className={cn("text-5xl font-black transition-colors", stats.due > 0 ? "text-white" : "text-white/30")}>
-                {stats.due}
-              </div>
-              <div className="text-xs text-white/50 font-medium uppercase tracking-wider mt-2 flex items-center justify-center gap-1 group-hover/stat:text-blue-300">
-                待复习 <ChevronDown className="w-3 h-3 opacity-0 group-hover/stat:opacity-100 transition-opacity" />
+        {/* Content Container */}
+        <div className="relative z-10 flex-1 flex flex-col p-8">
+          {/* Daily Progress Header */}
+          <div className="flex items-start justify-between mb-8">
+            <div>
+              <div className="text-white/40 text-xs font-medium tracking-wider uppercase mb-1">今日目标</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-light text-white font-outfit">
+                  {logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0}
+                </span>
+                <span className="text-white/30 text-sm">/ 50</span>
               </div>
             </div>
-            <div className="w-px h-16 bg-white/10" />
-            <div className="text-center group/stat cursor-pointer" onClick={handleStartLearn}>
-              <div className={cn("text-5xl font-black transition-colors", stats.new > 0 ? "text-white/90" : "text-white/30")}>
-                {stats.new}
-              </div>
-              <div className="text-xs text-white/50 font-medium uppercase tracking-wider mt-2 flex items-center justify-center gap-1 group-hover/stat:text-green-300">
-                新词 <ChevronDown className="w-3 h-3 opacity-0 group-hover/stat:opacity-100 transition-opacity" />
+            {/* Circular Progress Ring */}
+            <div className="relative w-16 h-16">
+              <svg className="w-full h-full -rotate-90">
+                <circle cx="32" cy="32" r="28" className="stroke-white/5 fill-none" strokeWidth="6" />
+                <circle
+                  cx="32" cy="32" r="28"
+                  className="stroke-purple-500 fill-none transition-all duration-1000 ease-out"
+                  strokeWidth="6"
+                  strokeDasharray={175}
+                  strokeDashoffset={175 - (Math.min((logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0) / 50, 1) * 175)}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white/50">
+                {Math.round(Math.min((logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0) / 50, 1) * 100)}%
               </div>
             </div>
           </div>
 
-          {/* Action Buttons Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={handleStartReview}
-              disabled={stats.due === 0}
-              className="py-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 hover:from-blue-500/30 hover:to-blue-600/30 border border-blue-500/30 text-blue-100 font-bold active:scale-95 transition-all shadow-lg flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed group"
-            >
-              <div className="flex items-center gap-2">
-                <RefreshCw className={cn("w-5 h-5", stats.due > 0 && "group-hover:rotate-180 transition-transform duration-500")} />
-                <span>开始复习</span>
+          {/* Main Dashboard Stats & Actions */}
+          <div className="flex-1 grid grid-cols-2 gap-8 items-center border-t border-white/5 pt-8">
+            {/* Review Column */}
+            <div className="flex flex-col gap-4">
+              <div
+                className="cursor-pointer group/stat transition-opacity hover:opacity-80"
+                onClick={onOpenReviewDashboard}
+              >
+                <div className="text-4xl font-light text-white font-outfit mb-1">{stats.due}</div>
+                <div className="text-xs text-blue-300 font-medium flex items-center gap-1">
+                  待复习
+                </div>
               </div>
-              <span className="text-[10px] text-blue-200/50 font-normal">巩固记忆</span>
-            </button>
+              <button
+                onClick={handleStartReview}
+                disabled={stats.due === 0}
+                className="w-full py-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-200 text-sm font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 group/btn"
+              >
+                <RefreshCw className={cn("w-4 h-4", stats.due > 0 && "group-hover/btn:rotate-180 transition-transform duration-500")} />
+                开始复习
+              </button>
+            </div>
 
-            <button
-              onClick={handleStartLearn}
-              disabled={stats.new === 0}
-              className="py-4 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 hover:from-emerald-500/30 hover:to-emerald-600/30 border border-emerald-500/30 text-emerald-100 font-bold active:scale-95 transition-all shadow-lg flex flex-col items-center justify-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed group"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                <span>学习新词</span>
+            {/* Learn Column */}
+            <div className="flex flex-col gap-4 relative">
+              <div className="absolute left-[-1rem] top-0 bottom-0 w-px bg-white/5" /> {/* Vertical Divider */}
+              <div>
+                <div className="text-4xl font-light text-white/90 font-outfit mb-1">{stats.new}</div>
+                <div className="text-xs text-emerald-300 font-medium">新词</div>
               </div>
-              <span className="text-[10px] text-emerald-200/50 font-normal">探索未知</span>
-            </button>
+              <button
+                onClick={handleStartLearn}
+                disabled={stats.new === 0}
+                className="w-full py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-200 text-sm font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 group/btn"
+              >
+                <Sparkles className="w-4 h-4 group-hover/btn:scale-110 transition-transform" />
+                学习新词
+              </button>
+            </div>
           </div>
         </div>
       </motion.div>
 
-      {/* 2. STATS ENTRY & TOOLS GRID */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Statistics Entry Card */}
+      {/* 2. COMMAND BAR (Horizontal Scrollable Tools) */}
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 mask-linear-fade">
         <button
           onClick={() => setShowStats(true)}
-          className="col-span-2 glass-panel p-4 flex items-center justify-between hover:bg-white/5 transition-colors group relative overflow-hidden"
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
-          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-          <div className="flex items-center gap-4 relative z-10">
-            <div className="p-3 rounded-full bg-purple-500/20 text-purple-300">
-              <Activity className="w-6 h-6" />
-            </div>
-            <div className="text-left">
-              <h3 className="font-bold text-white">学习统计</h3>
-              <p className="text-xs text-white/50">查看日历热力图与预测</p>
-            </div>
+          <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300 group-hover:scale-110 transition-transform">
+            <Activity className="w-4 h-4" />
           </div>
-          <ChevronDown className="w-5 h-5 text-white/30 -rotate-90 group-hover:translate-x-1 transition-transform" />
-        </button>
-
-        <button
-          onClick={onAddWord}
-          className="glass-panel p-4 flex flex-col items-center justify-center gap-2 hover:bg-white/5 transition-colors group"
-        >
-          <div className="p-2 rounded-full bg-green-500/10 text-green-300 group-hover:scale-110 transition-transform">
-            <Plus className="w-5 h-5" />
+          <div className="text-left">
+            <div className="text-sm text-white font-medium">学习统计</div>
           </div>
-          <span className="text-xs font-medium text-white/70">添加单词</span>
         </button>
 
         <button
           onClick={onOpenDeckClusters}
-          className="glass-panel p-4 flex flex-col items-center justify-center gap-2 hover:bg-white/5 transition-colors group"
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
-          <div className="p-2 rounded-full bg-orange-500/10 text-orange-300 group-hover:scale-110 transition-transform">
-            <Sparkles className="w-5 h-5" />
+          <div className="p-1.5 rounded-lg bg-orange-500/20 text-orange-300 group-hover:scale-110 transition-transform">
+            <Sparkles className="w-4 h-4" />
           </div>
-          <span className="text-xs font-medium text-white/70">单词分组</span>
+          <div className="text-left">
+            <div className="text-sm text-white font-medium">单词分组</div>
+          </div>
+        </button>
+
+        <button
+          onClick={handleBuildKnowledgeGraph}
+          disabled={isBuilding}
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group disabled:opacity-50"
+        >
+          <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 group-hover:scale-110 transition-transform">
+            {isBuilding ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+          </div>
+          <div className="text-left">
+            <div className="text-sm text-white font-medium">
+              {isBuilding ? `${buildProgress.current}/${buildProgress.total}` : '构建图谱'}
+            </div>
+          </div>
         </button>
 
         <button
           onClick={onOpenKnowledgeGraph}
-          className="glass-panel p-4 flex flex-col items-center justify-center gap-2 hover:bg-white/5 transition-colors group"
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
-          <div className="p-2 rounded-full bg-indigo-500/10 text-indigo-300 group-hover:scale-110 transition-transform">
-            <Network className="w-5 h-5" />
+          <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 group-hover:scale-110 transition-transform">
+            <Network className="w-4 h-4" />
           </div>
-          <span className="text-xs font-medium text-white/70">知识图谱</span>
+          <div className="text-left">
+            <div className="text-sm text-white font-medium">知识图谱</div>
+          </div>
+        </button>
+
+        <button
+          onClick={_onReadingPractice}
+          className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
+        >
+          <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 group-hover:scale-110 transition-transform">
+            <BookOpen className="w-4 h-4" />
+          </div>
+          <div className="text-left">
+            <div className="text-sm text-white font-medium">阅读练习</div>
+          </div>
         </button>
       </div>
+
+      {/* FLOATING ACTION BUTTON (Add Word) */}
+      <motion.button
+        initial={{ scale: 0, rotate: 90 }}
+        animate={{ scale: 1, rotate: 0 }}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        onClick={onAddWord}
+        className="fixed bottom-8 right-8 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/30 flex items-center justify-center text-white border border-white/20 backdrop-blur-md"
+        style={{ marginBottom: '80px' }} // Avoid overlapping with FloatingAIChat if present
+      >
+        <Plus className="w-8 h-8" />
+      </motion.button>
 
       {/* 3. WORD LIST */}
       <div className="space-y-4">

@@ -3,7 +3,7 @@
  * 允许用户调整液态玻璃 UI 参数（透明度、模糊度、饱和度、扭曲强度等）。
  * 支持实时预览和恢复默认设置。
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key } from 'lucide-react';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { importCustomDeck } from '@/lib/import-custom';
@@ -15,6 +15,7 @@ export interface LiquidGlassSettings {
   saturation: number;
   distortionScale: number;
   distortionFrequency: number;
+  backgroundImage?: string;
 }
 
 export const DEFAULT_SETTINGS: LiquidGlassSettings = {
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: LiquidGlassSettings = {
   saturation: 180,
   distortionScale: 15,
   distortionFrequency: 0.01,
+  backgroundImage: '',
 };
 
 interface SettingsModalProps {
@@ -51,14 +53,104 @@ export function SettingsModal({
   const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api'>('visual');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, word: '' });
+  const [bgUrlInput, setBgUrlInput] = useState('');
+
+  // 背景图历史记录 (1天有效期)
+  const [bgHistory, setBgHistory] = useState<Array<{ url: string; timestamp: number }>>([]);
+  const BG_HISTORY_KEY = 'background-history';
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+  // 加载并清理过期的背景历史
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(BG_HISTORY_KEY);
+      if (saved) {
+        const parsed: Array<{ url: string; timestamp: number }> = JSON.parse(saved);
+        // 过滤掉超过1天的记录
+        const now = Date.now();
+        const valid = parsed.filter(item => (now - item.timestamp) < ONE_DAY_MS);
+        setBgHistory(valid);
+        // 保存清理后的结果
+        localStorage.setItem(BG_HISTORY_KEY, JSON.stringify(valid));
+      }
+    } catch (e) { /* ignore */ }
+  }, [isOpen]); // 每次打开时检查
+
+  // 保存背景到历史
+  const saveBgToHistory = (url: string) => {
+    if (!url || url.startsWith('data:')) return; // 不保存空或 base64 (太大)
+    setBgHistory(prev => {
+      // 移除重复
+      const filtered = prev.filter(item => item.url !== url);
+      // 添加新的到开头
+      const updated = [{ url, timestamp: Date.now() }, ...filtered].slice(0, 8); // 最多8个
+      localStorage.setItem(BG_HISTORY_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   if (!isOpen) return null;
 
-  const handleChange = (key: keyof LiquidGlassSettings, value: number) => {
+  const handleChange = (key: keyof LiquidGlassSettings, value: number | string) => {
+    // 如果是更换背景图，保存到历史
+    if (key === 'backgroundImage' && typeof value === 'string' && value) {
+      saveBgToHistory(value);
+    }
     onSettingsChange({
       ...settings,
       [key]: value,
     });
+  };
+
+  // Helper: Compress Image using Canvas
+  const compressImage = (file: File, maxWidth = 1920, quality = 0.7): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Resize logic
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error("Failed to get canvas context"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          // Compress
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        };
+        img.onerror = (e) => reject(e);
+      };
+      reader.onerror = (e) => reject(e);
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Show loading or status could be good, but here we just process
+    try {
+      const compressedDataUrl = await compressImage(file);
+      handleChange('backgroundImage', compressedDataUrl);
+    } catch (err) {
+      console.error("Compression failed:", err);
+      alert("图片处理失败，请重试或更换图片。");
+    }
   };
 
   const handleEmbeddingChange = (key: keyof EmbeddingConfig, value: number) => {
@@ -159,16 +251,198 @@ export function SettingsModal({
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'visual' && (
             <div className="space-y-8">
+              {/* Background Image Settings */}
+              <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  自定义背景
+                </h3>
+
+                {/* 1. File Upload with Compression */}
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">上传图片 (自动压缩适配)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    className="block w-full text-xs text-slate-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-full file:border-0
+                      file:text-xs file:font-semibold
+                      file:bg-blue-500/20 file:text-blue-400
+                      hover:file:bg-blue-500/30"
+                  />
+                  <p className="text-[10px] text-white/30">支持大图上传，系统将自动优化至 1080P 以节省空间。</p>
+                </div>
+
+                {/* 2. URL Input */}
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">或者输入图片链接</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={bgUrlInput}
+                      onChange={(e) => setBgUrlInput(e.target.value)}
+                      placeholder="https://..."
+                      className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-xs"
+                    />
+                    <button
+                      onClick={() => handleChange('backgroundImage', bgUrlInput)}
+                      className="px-3 py-2 bg-blue-500/20 text-blue-300 rounded-lg text-xs hover:bg-blue-500/30"
+                    >
+                      应用
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. 最近使用的背景 (History) */}
+                {bgHistory.length > 0 && (
+                  <div className="space-y-2 mt-4">
+                    <label className="text-xs text-white/60">最近使用 (24小时内)</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {bgHistory.map((item, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleChange('backgroundImage', item.url)}
+                          className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity group"
+                        >
+                          <img
+                            src={item.url}
+                            alt={`历史背景 ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            onError={(e) => {
+                              // 图片加载失败时隐藏
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          {settings.backgroundImage === item.url && (
+                            <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                          )}
+                          {/* 时间戳显示 */}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white/70 px-1 py-0.5 truncate">
+                            {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Presets & Tools */}
+                <div className="space-y-2 mt-4">
+                  <label className="text-xs text-white/60">精选壁纸 & 工具</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {/* Default */}
+                    <button
+                      onClick={() => handleChange('backgroundImage', '')}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-slate-800 flex items-center justify-center group"
+                    >
+                      <div className="text-[10px] text-white/50 group-hover:text-white">默认</div>
+                      {settings.backgroundImage === '' && (
+                        <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                      )}
+                    </button>
+
+                    {/* Bing Daily */}
+                    <button
+                      onClick={() => handleChange('backgroundImage', 'https://bing.biturl.top/?resolution=1920&format=image&index=0&mkt=zh-CN')}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-[#008373]/20 flex flex-col items-center justify-center gap-1 group"
+                      title="Bing 每日一图"
+                    >
+                      <div className="font-bold text-xs text-[#008373] group-hover:text-[#00a896]">Bing</div>
+                      <div className="text-[8px] text-white/50">每日</div>
+                    </button>
+
+                    {/* Bing Random (Past Week) */}
+                    <button
+                      onClick={() => {
+                        // Bing API only supports index 0-7 (past 8 days)
+                        const randomIndex = Math.floor(Math.random() * 8);
+                        const url = `https://bing.biturl.top/?resolution=1920&format=image&index=${randomIndex}&mkt=zh-CN&t=${Date.now()}`;
+                        handleChange('backgroundImage', url);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="Bing 随机一周"
+                    >
+                      <div className="font-bold text-xs text-blue-400 group-hover:text-blue-300">Bing</div>
+                      <div className="text-[8px] text-white/50">随机一周</div>
+                    </button>
+
+                    {/* Random Nature (Lorem Picsum - Reliable Free API) */}
+                    <button
+                      onClick={() => {
+                        // Lorem Picsum provides reliable random nature/landscape images
+                        const randomId = Math.floor(Math.random() * 1000);
+                        const url = `https://picsum.photos/seed/${randomId}/1920/1080`;
+                        handleChange('backgroundImage', url);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="随机风景壁纸"
+                    >
+                      <div className="font-bold text-xs text-emerald-400 group-hover:text-emerald-300">🌿</div>
+                      <div className="text-[8px] text-white/50">随机风景</div>
+                    </button>
+
+                    {/* Curated High-Quality Wallpapers (Handpicked) */}
+                    <button
+                      onClick={() => {
+                        // Curated list of stunning wallpapers from Unsplash (verified high-quality)
+                        const curatedWallpapers = [
+                          'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80', // Mountains
+                          'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80', // Foggy forest
+                          'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=1920&q=80', // Lake sunset
+                          'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1920&q=80', // Starry mountain
+                          'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1920&q=80', // Aurora
+                          'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1920&q=80', // Mountain peak
+                          'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1920&q=80', // Lake mountains
+                          'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=1920&q=80', // Misty lake
+                          'https://images.unsplash.com/photo-1518173946687-a4c47f766d66?w=1920&q=80', // Northern lights
+                          'https://images.unsplash.com/photo-1536431311719-398b6704d4cc?w=1920&q=80', // Colorful sky
+                          'https://images.unsplash.com/photo-1542224566-6e85f2e6772f?w=1920&q=80', // Milky way
+                          'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=1920&q=80', // Beach sunset
+                          'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1920&q=80', // Mountains golden
+                          'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1920&q=80', // Waterfall
+                          'https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?w=1920&q=80', // Desert dunes
+                        ];
+                        const randomUrl = curatedWallpapers[Math.floor(Math.random() * curatedWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-amber-500/20 to-rose-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="精选高清壁纸 (随机)"
+                    >
+                      <div className="font-bold text-xs text-amber-400 group-hover:text-amber-300">✨</div>
+                      <div className="text-[8px] text-white/50">精选壁纸</div>
+                    </button>
+
+                    {/* Presets */}
+                    {[
+                      'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80', // Space
+                    ].map((url, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleChange('backgroundImage', url)}
+                        className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity"
+                      >
+                        <img src={url} alt="Preset" className="w-full h-full object-cover" />
+                        {settings.backgroundImage === url && (
+                          <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {/* Opacity */}
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">背景透明度 (Opacity)</label>
+                  <label className="text-sm font-medium text-white/80">面板透明度 (Overlay Opacity)</label>
                   <span className="text-xs text-blue-300 font-mono">{settings.opacity.toFixed(2)}</span>
                 </div>
                 <input
                   type="range"
                   min="0"
-                  max="0.5"
+                  max="0.9"
                   step="0.01"
                   value={settings.opacity}
                   onChange={(e) => handleChange('opacity', parseFloat(e.target.value))}

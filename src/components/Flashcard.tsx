@@ -483,7 +483,7 @@ export function Flashcard({
       onClick={() => handleReveal(false)}
     >
       <div className={cn(
-        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500",
+        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500",
         "hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:border-white/20"
       )}>
 

@@ -7,7 +7,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { ArrowLeft, Clock, Calendar, CheckCircle, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format, addDays, startOfDay } from 'date-fns';
-import { getAllCards, getDeckById } from '@/lib/db';
+import { getAllCards, getDeckById } from '@/lib/data-source';
 import type { Deck, WordCard } from '@/types';
 import { State } from 'ts-fsrs';
 import { cn } from '@/lib/utils';

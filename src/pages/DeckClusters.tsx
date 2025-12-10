@@ -4,7 +4,7 @@ import { ArrowLeft, Layers, Loader2, Target, AlertCircle, X, RefreshCw, Network,
 import { cn } from '@/lib/utils';
 import type { WordCard } from '@/types';
 import { EmbeddingService } from '@/lib/embedding';
-import { getAllCards } from '@/lib/db';
+import { getAllCards } from '@/lib/data-source';
 import { State } from 'ts-fsrs';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 

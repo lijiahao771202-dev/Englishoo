@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { AuthModal } from '@/components/AuthModal';
 import { Layout } from '@/components/Layout';
@@ -11,7 +11,7 @@ import { DeckList } from '@/components/DeckList';
 import { DeckDetail } from '@/components/DeckDetail';
 import { createNewWordCard, scheduleReview, Rating, getReviewPreviews } from '@/lib/fsrs';
 import { getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiveCards, initDB, SYSTEM_DECK_GUIDED } from '@/lib/data-source';
-import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, translateContent } from '@/lib/deepseek';
+import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, getDefinitionInContext } from '@/lib/deepseek';
 import type { WordCard } from '@/types';
 import { type RecordLog } from 'ts-fsrs';
 import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User, LogOut } from 'lucide-react';
@@ -23,12 +23,16 @@ import { EmbeddingService, type EmbeddingConfig } from '@/lib/embedding';
 import { GlobalSelectionMenu } from '@/components/GlobalSelectionMenu';
 import { SettingsModal, DEFAULT_SETTINGS, type LiquidGlassSettings } from '@/components/SettingsModal';
 import { motion, AnimatePresence } from 'framer-motion';
-import KnowledgeGraph from '@/pages/KnowledgeGraph';
-import GuidedLearningSession from './pages/GuidedLearningSession';
-import ShadowingSession from './pages/ShadowingSession';
-import { DeckClusters } from '@/pages/DeckClusters';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
 import { ReviewDashboard } from '@/pages/ReviewDashboard';
+
+// 🚀 React.lazy: 路由级代码分割 (Code Splitting for heavy page components)
+const KnowledgeGraph = lazy(() => import('@/pages/KnowledgeGraph'));
+const GuidedLearningSession = lazy(() => import('./pages/GuidedLearningSession'));
+const ShadowingSession = lazy(() => import('./pages/ShadowingSession'));
+const DeckClusters = lazy(() => import('@/pages/DeckClusters').then(m => ({ default: m.DeckClusters })));
+
 
 type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 'settings' | 'reading' | 'knowledge-graph' | 'guided-learning' | 'deck-clusters' | 'shadowing' | 'review-queue' | 'review-dashboard';
 
@@ -41,7 +45,7 @@ type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 
  * 4. 学习模式与复习模式的分流逻辑
  */
 function AppContent() {
-    const { user, isLoading: isAuthLoading, signOut } = useAuth();
+    const { user, signOut } = useAuth();
     const [showAuthModal, setShowAuthModal] = useState(false);
 
     // Navigation State
@@ -109,21 +113,19 @@ function AppContent() {
     // FSRS Previews
     const [reviewPreviews, setReviewPreviews] = useState<RecordLog | undefined>(undefined);
 
-    // Liquid Glass Settings
-    const [glassSettings, setGlassSettings] = useState<LiquidGlassSettings>(DEFAULT_SETTINGS);
-    const [isGlassSettingsOpen, setIsGlassSettingsOpen] = useState(false);
-
-    // Load Settings
-    useEffect(() => {
-        const saved = localStorage.getItem('glass-settings');
-        if (saved) {
-            try {
-                setGlassSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(saved) });
-            } catch (e) {
-                console.error("Failed to load settings", e);
+    // Liquid Glass Settings (Lazy Initialization to prevent race condition)
+    const [glassSettings, setGlassSettings] = useState<LiquidGlassSettings>(() => {
+        try {
+            const saved = localStorage.getItem('glass-settings');
+            if (saved) {
+                return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
             }
+        } catch (e) {
+            console.error("Failed to load settings", e);
         }
-    }, []);
+        return DEFAULT_SETTINGS;
+    });
+    const [isGlassSettingsOpen, setIsGlassSettingsOpen] = useState(false);
 
     // Apply Settings
     useEffect(() => {
@@ -131,6 +133,16 @@ function AppContent() {
         root.style.setProperty('--glass-background', `rgba(255, 255, 255, ${glassSettings.opacity})`);
         root.style.setProperty('--glass-blur', `${glassSettings.blur}px`);
         root.style.setProperty('--glass-saturation', `${glassSettings.saturation}%`);
+
+        if (glassSettings.backgroundImage) {
+            document.body.style.backgroundImage = `url(${glassSettings.backgroundImage})`;
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundAttachment = 'fixed';
+            document.body.style.backgroundRepeat = 'no-repeat';
+        } else {
+            document.body.style.backgroundImage = '';
+        }
 
         // Save
         localStorage.setItem('glass-settings', JSON.stringify(glassSettings));
@@ -806,7 +818,7 @@ function AppContent() {
     const handleGetDefinition = async (word: string, context: string) => {
         if (!apiKey) return undefined;
         try {
-            return await translateContent(word, context, apiKey);
+            return await getDefinitionInContext(word, context, apiKey);
         } catch (e) {
             console.error("Definition lookup failed", e);
             return undefined;
@@ -933,10 +945,12 @@ function AppContent() {
                             transition={{ duration: 0.3 }}
                             className="fixed inset-0 z-50 bg-slate-900"
                         >
-                            <KnowledgeGraph
-                                onBack={() => currentDeckId ? setView('deck-detail') : setView('decks')}
-                                deckId={currentDeckId || undefined}
-                            />
+                            <Suspense fallback={<LoadingSpinner />}>
+                                <KnowledgeGraph
+                                    onBack={() => currentDeckId ? setView('deck-detail') : setView('decks')}
+                                    deckId={currentDeckId || undefined}
+                                />
+                            </Suspense>
                         </motion.div>
                     )}
 
@@ -1004,13 +1018,14 @@ function AppContent() {
                             transition={{ duration: 0.3 }}
                             className="h-full"
                         >
-                            <DeckClusters
-                                deckId={currentDeckId}
-                                onBack={() => setView('deck-detail')}
-                                cards={cards} // Pass current deck cards to avoid re-fetching and enable hydration
-                                onStartSession={handleStartClusterSession}
-
-                            />
+                            <Suspense fallback={<LoadingSpinner />}>
+                                <DeckClusters
+                                    deckId={currentDeckId}
+                                    onBack={() => setView('deck-detail')}
+                                    cards={cards}
+                                    onStartSession={handleStartClusterSession}
+                                />
+                            </Suspense>
                         </motion.div>
                     )}
 
@@ -1023,16 +1038,17 @@ function AppContent() {
                             transition={{ duration: 0.3 }}
                             className="fixed inset-0 z-50 bg-slate-50 overflow-hidden"
                         >
-                            <GuidedLearningSession
-                                onBack={() => currentDeckId ? setView('deck-detail') : setView('decks')}
-                                apiKey={apiKey}
-                                cards={sessionQueue}
-                                onRate={handleLearnRate}
-                                sessionGroups={sessionGroups}
-
-                                onUpdateCard={handleUpdateCard}
-                                sessionMode={sessionMode}
-                            />
+                            <Suspense fallback={<LoadingSpinner />}>
+                                <GuidedLearningSession
+                                    onBack={() => currentDeckId ? setView('deck-detail') : setView('decks')}
+                                    apiKey={apiKey}
+                                    cards={sessionQueue}
+                                    onRate={handleLearnRate}
+                                    sessionGroups={sessionGroups}
+                                    onUpdateCard={handleUpdateCard}
+                                    sessionMode={sessionMode}
+                                />
+                            </Suspense>
                         </motion.div>
                     )}
 
@@ -1045,9 +1061,11 @@ function AppContent() {
                             transition={{ duration: 0.3 }}
                             className="fixed inset-0 z-50 bg-slate-950 overflow-hidden"
                         >
-                            <ShadowingSession
-                                onBack={() => setView('decks')}
-                            />
+                            <Suspense fallback={<LoadingSpinner />}>
+                                <ShadowingSession
+                                    onBack={() => setView('decks')}
+                                />
+                            </Suspense>
                         </motion.div>
                     )}
 

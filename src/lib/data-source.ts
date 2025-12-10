@@ -1,75 +1,64 @@
 /**
- * @file 数据源切换层 (data-source.ts)
- * @description 根据用户登录状态自动选择数据源
- * - 已登录: 使用 Supabase (云端)
- * - 未登录: 使用 IndexedDB (本地)
+ * @file 数据源切换层 (data-source.ts) [Refactored for Local-First]
+ * @description 本地优先架构核心
+ * - 所有 UI 操作 -> IndexedDB (0 Latency)
+ * - 后台 SyncManager -> Unifies Cloud Data
  */
-import { supabase } from './supabase';
 import * as localDB from './db';
-import * as cloudDB from './supabase-db';
-
-// 当前会话的用户状态缓存
-let isAuthenticated = false;
-
-// 初始化: 检测登录状态
-supabase.auth.onAuthStateChange((_event, session) => {
-    isAuthenticated = !!session?.user;
-    console.log(`[DataSource] Auth state changed: ${isAuthenticated ? 'Logged In' : 'Logged Out'}`);
-});
-
-// 初始检测
-supabase.auth.getSession().then(({ data: { session } }) => {
-    isAuthenticated = !!session?.user;
-});
-
-/**
- * @description 检查是否应使用云端数据源
- */
-export function useCloud(): boolean {
-    return isAuthenticated;
-}
+import { syncManager } from './sync-manager'; // Import starts the auto-sync logic
 
 // ============================================================
-// 导出统一接口 (自动选择数据源)
+// 统一接口 (全部指向 LocalDB)
 // ============================================================
 
 // 卡包操作
-export const getAllDecks = async () => useCloud() ? cloudDB.getAllDecks() : localDB.getAllDecks();
-export const createDeck = async (deck: Parameters<typeof localDB.createDeck>[0]) => useCloud() ? cloudDB.createDeck(deck) : localDB.createDeck(deck);
-export const deleteDeck = async (id: string) => useCloud() ? cloudDB.deleteDeck(id) : localDB.deleteDeck(id);
-export const getDeckById = async (id: string) => useCloud() ? cloudDB.getDeckById(id) : localDB.getDeckById(id);
+export const getAllDecks = localDB.getAllDecks;
+export const createDeck = localDB.createDeck;
+export const deleteDeck = localDB.deleteDeck;
+export const getDeckById = localDB.getDeckById;
 
 // 卡片操作
-export const getAllCards = async (deckId?: string) => useCloud() ? cloudDB.getAllCards(deckId) : localDB.getAllCards(deckId);
-export const saveCard = async (card: Parameters<typeof localDB.saveCard>[0]) => useCloud() ? cloudDB.saveCard(card) : localDB.saveCard(card);
-export const deleteCard = async (id: string) => useCloud() ? cloudDB.deleteCard(id) : localDB.deleteCard(id);
-export const getNewCards = async (deckId?: string) => useCloud() ? cloudDB.getNewCards(deckId) : localDB.getNewCards(deckId);
-export const getDueCards = async (deckId?: string) => useCloud() ? cloudDB.getDueCards(deckId) : localDB.getDueCards(deckId);
-export const getActiveCards = async (deckId?: string) => useCloud() ? cloudDB.getActiveCards(deckId) : localDB.getActiveCards(deckId);
-export const getCardsByIds = async (ids: string[]) => useCloud() ? cloudDB.getCardsByIds(ids) : localDB.getCardsByIds(ids);
-export const getCardByWord = async (word: string) => useCloud() ? cloudDB.getCardByWord(word) : localDB.getCardByWord(word);
-export const getCardCount = async (deckId?: string) => useCloud() ? cloudDB.getCardCount(deckId) : localDB.getCardCount(deckId);
+export const getAllCards = localDB.getAllCards;
+export const saveCard = localDB.saveCard;
+export const saveCards = localDB.saveCards;
+export const deleteCard = localDB.deleteCard;
+export const getNewCards = localDB.getNewCards;
+export const getDueCards = localDB.getDueCards;
+export const getActiveCards = localDB.getActiveCards;
+export const getCardsByIds = localDB.getCardsByIds;
+export const getCardByWord = localDB.getCardByWord;
+export const getCardCount = localDB.getCardCount;
 
 // 日志操作
-export const addReviewLog = async (log: Parameters<typeof localDB.addReviewLog>[0]) => useCloud() ? cloudDB.addReviewLog(log) : localDB.addReviewLog(log);
-export const getAllLogs = async () => useCloud() ? cloudDB.getAllLogs() : localDB.getAllLogs();
+export const addReviewLog = localDB.addReviewLog;
+export const getAllLogs = localDB.getAllLogs;
 
 // 缓存操作
-export const getSemanticConnections = async (source: string) => useCloud() ? cloudDB.getSemanticConnections(source) : localDB.getSemanticConnections(source);
-export const saveSemanticConnections = async (data: Parameters<typeof localDB.saveSemanticConnections>[0]) => useCloud() ? cloudDB.saveSemanticConnections(data) : localDB.saveSemanticConnections(data);
-export const getGroupGraphCache = async (key: string) => useCloud() ? cloudDB.getGroupGraphCache(key) : localDB.getGroupGraphCache(key);
-export const saveGroupGraphCache = async (data: Parameters<typeof localDB.saveGroupGraphCache>[0]) => useCloud() ? cloudDB.saveGroupGraphCache(data) : localDB.saveGroupGraphCache(data);
-export const getAIGraphCache = async (word: string) => useCloud() ? cloudDB.getAIGraphCache(word) : localDB.getAIGraphCache(word);
-export const saveAIGraphCache = async (data: Parameters<typeof localDB.saveAIGraphCache>[0]) => useCloud() ? cloudDB.saveAIGraphCache(data) : localDB.saveAIGraphCache(data);
+export const getSemanticConnections = localDB.getSemanticConnections;
+export const saveSemanticConnections = localDB.saveSemanticConnections;
+export const getGroupGraphCache = localDB.getGroupGraphCache;
+export const saveGroupGraphCache = localDB.saveGroupGraphCache;
+export const getAIGraphCache = localDB.getAIGraphCache;
+export const saveAIGraphCache = localDB.saveAIGraphCache;
 
 // 初始化
 export const initDB = async () => {
-    if (useCloud()) {
-        await cloudDB.initSupabaseDB();
-    } else {
-        await localDB.initDB();
-    }
+    // 1. Init Local DB
+    await localDB.initDB();
+
+    // 2. SyncManager is already initialized via import singleton
+    // We can explicitly trigger an initial sync if needed, 
+    // but SyncManager constructor handles 'auto manual sync' on login check.
+    console.log('[DataSource] Init complete (Local-First Mode)');
 };
 
 // 系统常量
 export const SYSTEM_DECK_GUIDED = localDB.SYSTEM_DECK_GUIDED;
+
+// 特殊操作
+export const resetDatabase = localDB.resetDatabase;
+export const addToVocabularyDeck = localDB.addToVocabularyDeck;
+
+// Export sync manager for UI controls
+export { syncManager };
+

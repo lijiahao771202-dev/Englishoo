@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import { EmbeddingService } from '@/lib/embedding';
-import { getCardByWord } from '@/lib/db';
+import { getCardByWord } from '@/lib/data-source';
 import { fuzzyMatch } from '@/lib/utils';
 import type { WordCard } from '@/types';
 import { ArrowLeft, Share2, Search, ExternalLink, X, BookOpen, Activity, Pause, Play, RefreshCw } from 'lucide-react';

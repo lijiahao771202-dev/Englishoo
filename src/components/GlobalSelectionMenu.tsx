@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { addToVocabularyDeck } from '@/lib/db';
+import { addToVocabularyDeck } from '@/lib/data-source';
 import { Plus } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '@/lib/sounds';
 
@@ -21,13 +21,13 @@ export function GlobalSelectionMenu() {
       }
 
       const text = selection.toString().trim();
-      
+
       // Filter: Only valid English words/phrases, max length 30
       if (text.length > 0 && text.length < 30 && /^[a-zA-Z\s\-\']+$/.test(text)) {
         setSelectedText(text);
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
-        
+
         // Calculate position (centered above selection)
         setPosition({
           x: rect.left + rect.width / 2,
@@ -41,8 +41,8 @@ export function GlobalSelectionMenu() {
 
     // Use mouseup/keyup for better performance than selectionchange
     const handleInteraction = () => {
-       // Small delay to ensure selection is finalized
-       setTimeout(handleSelectionChange, 10);
+      // Small delay to ensure selection is finalized
+      setTimeout(handleSelectionChange, 10);
     };
 
     document.addEventListener('mouseup', handleInteraction);
@@ -70,7 +70,7 @@ export function GlobalSelectionMenu() {
         setIsVisible(false);
       } else {
         // Maybe show a small tooltip "Exists"?
-        alert(result.message); 
+        alert(result.message);
       }
     } catch (error) {
       console.error(error);
@@ -82,12 +82,12 @@ export function GlobalSelectionMenu() {
   if (!isVisible || !position) return null;
 
   return (
-    <div 
+    <div
       className="fixed z-[9999] pointer-events-auto animate-in fade-in zoom-in duration-200"
-      style={{ 
-        left: position.x, 
-        top: position.y, 
-        transform: 'translate(-50%, -100%)' 
+      style={{
+        left: position.x,
+        top: position.y,
+        transform: 'translate(-50%, -100%)'
       }}
       onMouseDown={(e) => e.stopPropagation()} // Prevent clearing selection when clicking menu
     >
@@ -96,7 +96,7 @@ export function GlobalSelectionMenu() {
         className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/80 text-white backdrop-blur-xl border border-white/10 shadow-xl hover:bg-black hover:scale-105 transition-all text-xs font-medium group"
       >
         <div className="p-1 rounded-full bg-blue-500/20 group-hover:bg-blue-500/40 transition-colors">
-            <Plus className="w-3 h-3 text-blue-400" />
+          <Plus className="w-3 h-3 text-blue-400" />
         </div>
         <span>加入生词本</span>
         {isAdding && <span className="animate-spin ml-1 opacity-60">⏳</span>}

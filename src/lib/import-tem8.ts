@@ -1,4 +1,4 @@
-import { createDeck, saveCard, getDB } from './db';
+import { createDeck, saveCard, saveSemanticConnections } from './data-source';
 import { createNewWordCard } from './fsrs';
 
 /**
@@ -34,10 +34,9 @@ interface Tem8Word {
 export async function importTem8Deck(onProgress?: (count: number, total: number) => void) {
   try {
     console.log('Starting import...');
-    const db = await getDB();
     const response = await fetch('/Level8luan_2.json');
     if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      throw new Error(`Failed to fetch file: ${response.statusText}`);
     }
     const text = await response.text();
     const lines = text.split('\n').filter(line => line.trim());
@@ -61,41 +60,41 @@ export async function importTem8Deck(onProgress?: (count: number, total: number)
     // Process in batches
     for (let i = 0; i < lines.length; i += batchSize) {
       const batchLines = lines.slice(i, i + batchSize);
-      
+
       const promises = batchLines.map(async (line) => {
         try {
           const data: Tem8Word = JSON.parse(line);
           const word = data.headWord;
-          
+
           const trans = data.content.word.content.trans || [];
           // Format meaning: "v. 解释"
           const meaning = trans.map(t => `${t.pos}. ${t.tranCn}`).join('\n');
           const partOfSpeech = trans[0]?.pos || 'unknown';
-          
+
           const sentences = data.content.word.content.sentence?.sentences;
           const example = sentences?.[0]?.sContent;
           const exampleMeaning = sentences?.[0]?.sCn;
 
           const card = createNewWordCard(
-              word, 
-              meaning, 
-              partOfSpeech, 
-              deckId, 
-              example
+            word,
+            meaning,
+            partOfSpeech,
+            deckId,
+            example
           );
 
           if (exampleMeaning) {
-              card.exampleMeaning = exampleMeaning;
+            card.exampleMeaning = exampleMeaning;
           }
-          
+
           // Add Rank
           if (data.wordRank) {
-              card.rank = data.wordRank;
+            card.rank = data.wordRank;
           }
 
           // Extract and save semantic connections (explicit knowledge)
           const connections: Array<{ target: string; similarity: number }> = [];
-          
+
           // 1. Synonyms (High similarity: 0.9)
           if (data.content.word.content.syno?.synos) {
             data.content.word.content.syno.synos.forEach(s => {
@@ -123,24 +122,24 @@ export async function importTem8Deck(onProgress?: (count: number, total: number)
           }
 
           if (connections.length > 0) {
-             // Remove duplicates, keep highest similarity
-             const uniqueConnections = new Map<string, number>();
-             connections.forEach(c => {
-               const current = uniqueConnections.get(c.target);
-               if (!current || c.similarity > current) {
-                 uniqueConnections.set(c.target, c.similarity);
-               }
-             });
-             
-             const finalConnections = Array.from(uniqueConnections.entries())
-               .map(([target, similarity]) => ({ target, similarity }))
-               .sort((a, b) => b.similarity - a.similarity);
+            // Remove duplicates, keep highest similarity
+            const uniqueConnections = new Map<string, number>();
+            connections.forEach(c => {
+              const current = uniqueConnections.get(c.target);
+              if (!current || c.similarity > current) {
+                uniqueConnections.set(c.target, c.similarity);
+              }
+            });
 
-             // Save to semantic_connections store
-             await db.put('semantic_connections', { 
-               source: word.toLowerCase(), 
-               connections: finalConnections 
-             });
+            const finalConnections = Array.from(uniqueConnections.entries())
+              .map(([target, similarity]) => ({ target, similarity }))
+              .sort((a, b) => b.similarity - a.similarity);
+
+            // Save to semantic_connections store (via data-source for cloud sync)
+            await saveSemanticConnections({
+              source: word.toLowerCase(),
+              connections: finalConnections
+            });
           }
 
           await saveCard(card);
@@ -163,7 +162,7 @@ export async function importTem8Deck(onProgress?: (count: number, total: number)
       // Yield to main thread to keep UI responsive
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    
+
     console.log(`Successfully imported ${count} cards.`);
     return { count, deckId };
   } catch (e) {

@@ -741,24 +741,28 @@ export async function generateMindMap(word: string, apiKey: string): Promise<Enr
 }
 
 /**
- * @description 生成阅读练习文章
+ * @description 生成阅读练习文章 (Scheme B: Story/News, ~300 words)
  */
 export async function generateReadingMaterial(words: string[], apiKey: string): Promise<{ title: string; content: string; translation: string }> {
   if (!apiKey) throw new Error('API Key is missing');
 
   const prompt = `
-      Please write a short, engaging story or article (approx. 150-200 words) that naturally incorporates the following English words: ${words.join(', ')}.
+      Please write a creative short story or a customized news report (approx. 250-300 words) that naturally incorporates the following English words: ${words.join(', ')}.
       
       Requirements:
-      1. The content should be suitable for English learners.
-      2. Highlight the selected words in the text by wrapping them in <b> tags (e.g., <b>word</b>).
-      3. Provide a title for the article.
-      4. Provide a Chinese translation of the entire article.
+      1. **Genre**: Mix of engaging fiction or interesting news style.
+      2. **Length**: Around 300 words.
+      3. **Key Feature**: Highlight the provided words using <b> tags (e.g., <b>word</b>).
+      4. **Context**: Ensure the context clarifies the meaning of the words.
+      5. **Output**:
+         - Title
+         - HTML Content (with <b> tags)
+         - Full Chinese Translation
       
       Return strictly in JSON format:
       {
-        "title": "Article Title",
-        "content": "The article content with <b>highlighted</b> words...",
+        "title": "Title",
+        "content": "Content with <b>tags</b>...",
         "translation": "Chinese translation..."
       }
     `;
@@ -774,6 +778,43 @@ export async function generateReadingMaterial(words: string[], apiKey: string): 
   } catch (error) {
     console.error('DeepSeek API Error:', error);
     throw error;
+  }
+}
+
+/**
+ * @description 获取单词在特定上下文中的释义 (Contextual Definition)
+ */
+export async function getDefinitionInContext(word: string, context: string, apiKey: string): Promise<string> {
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const prompt = `
+      Explain the meaning of the word "${word}" based strictly on the following context.
+      Context: "...${context}..."
+      
+      Output Constraint:
+      - Return ONLY the precise Chinese definition fitting this specific context.
+      - Do NOT list all dictionary definitions.
+      - If it's a metaphor, explain the metaphorical meaning.
+      - Keep it under 20 characters.
+      
+      Return strictly in JSON format:
+      {
+        "definition": "chinese definition"
+      }
+    `;
+
+  try {
+    const response = await axios.post(API_URL, {
+      model: "deepseek-chat",
+      messages: [{ role: "system", content: "You are a helpful assistant that outputs JSON." }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
+
+    const content = cleanJson(response.data.choices[0].message.content);
+    return JSON.parse(content).definition;
+  } catch (error) {
+    console.error('DeepSeek Context Def Error:', error);
+    return "";
   }
 }
 

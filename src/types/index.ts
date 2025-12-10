@@ -14,6 +14,8 @@ export interface Deck {
   theme?: string;
   /** 创建时间 */
   createdAt: Date;
+  /** 更新时间 (for sync) */
+  updatedAt?: number;
 }
 
 /**
@@ -65,10 +67,10 @@ export interface WordCard extends FSRSCard {
   /** 派生词 (可选) */
   derivatives?: Array<{ word: string; meaning: string; partOfSpeech: string }>;
   /** 词根词源 (可选) */
-  roots?: Array<{ 
-    root: string; 
-    meaning: string; 
-    description: string; 
+  roots?: Array<{
+    root: string;
+    meaning: string;
+    description: string;
     cognates?: string[]; // 同根词
   }>;
   /** 用户笔记 (可选) */
@@ -79,6 +81,8 @@ export interface WordCard extends FSRSCard {
   isImportant?: boolean;
   /** 创建时间戳 */
   createdAt: number;
+  /** 更新时间 (for sync) */
+  updatedAt?: number;
 }
 
 /**

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2 } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
-import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache } from '@/lib/db';
+import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache } from '@/lib/data-source';
 import { cn } from '@/lib/utils';
 import { speak } from '@/lib/tts';
 import { playClickSound, playSuccessSound, playFailSound, playPassSound, playSpellingSuccessSound } from '@/lib/sounds';
@@ -17,6 +17,7 @@ import { SessionReport } from '@/components/SessionReport';
 import { Rating, State } from 'ts-fsrs';
 import { ReviewControls } from '@/components/ReviewControls';
 import { getReviewPreviews } from '@/lib/fsrs';
+import { FloatingAIChat } from '@/components/FloatingAIChat';
 
 /**
  * @description 引导式学习会话页面 (Guided Learning Session)
@@ -2249,7 +2250,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     style={{ x: cardPosition?.x, y: cardPosition?.y }}
                     className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
                 >
-                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500 hover:border-white/20">
+                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30">
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2337,7 +2338,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     style={{ x: cardPosition?.x, y: cardPosition?.y }}
                     className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
                 >
-                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-500 hover:border-white/20">
+                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30">
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2477,10 +2478,33 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         }
     };
 
+    // Background image from settings (synced with homepage)
+    const [backgroundImage, setBackgroundImage] = useState<string>('');
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem('glass-settings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                if (settings.backgroundImage) {
+                    setBackgroundImage(settings.backgroundImage);
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }, []);
+
     return (
-        <div className="fixed inset-0 bg-slate-950 text-white overflow-hidden flex flex-col z-50">
-            {/* Header */}
-            <header className="h-16 border-b border-white/10 flex items-center px-6 bg-slate-900/50 backdrop-blur-md z-10">
+        <div
+            className="fixed inset-0 text-white overflow-hidden flex flex-col z-50"
+            style={backgroundImage ? {
+                backgroundImage: `url(${backgroundImage})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed',
+                backgroundRepeat: 'no-repeat'
+            } : {}}
+        >
+            {/* Header - Glass Style */}
+            <header className="h-16 border-b border-white/10 flex items-center px-6 bg-white/5 backdrop-blur-xl z-10">
                 <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-4">
                     <ArrowLeft className="w-5 h-5 text-white/70" />
                 </button>
@@ -2776,7 +2800,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             }}
                             nodeVal={(node: any) => node.val}
 
-                            backgroundColor="#020617"
+                            backgroundColor="rgba(0,0,0,0)"
                             onNodeClick={(node) => {
                                 if (node.x && node.y && graphRef.current) {
                                     // [MODIFIED] Use smartFocus for consistent interaction
@@ -2919,6 +2943,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         />
                     </div>
                 )}
+
+                {/* AI 学习助手悬浮窗 */}
+                <FloatingAIChat
+                    currentWord={currentItem?.card?.word}
+                    currentMeaning={currentItem?.card?.meaning}
+                    apiKey={apiKey}
+                />
             </div>
         </div>
     );

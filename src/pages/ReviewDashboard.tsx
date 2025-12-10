@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, CheckCircle2, ChevronRight, AlertCircle, TrendingUp, Sun, Moon, ChevronDown } from 'lucide-react';
 import type { WordCard } from '@/types';

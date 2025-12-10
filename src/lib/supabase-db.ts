@@ -31,6 +31,33 @@ export async function getAllDecks(): Promise<Deck[]> {
         description: d.description,
         theme: d.theme,
         createdAt: new Date(d.created_at),
+        updatedAt: d.updated_at ? new Date(d.updated_at).getTime() : undefined,
+    }));
+}
+
+/**
+ * @description 获取自上次同步以来更新的卡包
+ */
+export async function getDecksUpdatedSince(timestamp: number): Promise<Deck[]> {
+    const timeStr = new Date(timestamp).toISOString();
+    const { data, error } = await supabase
+        .from('decks')
+        .select('*')
+        .or(`updated_at.gt.${timeStr},created_at.gt.${timeStr}`)
+        .order('updated_at', { ascending: true, nullsFirst: false });
+
+    if (error) {
+        console.error('获取增量卡包失败:', error);
+        return [];
+    }
+
+    return (data || []).map(d => ({
+        id: d.id,
+        name: d.name,
+        description: d.description,
+        theme: d.theme,
+        createdAt: new Date(d.created_at),
+        updatedAt: d.updated_at ? new Date(d.updated_at).getTime() : undefined,
     }));
 }
 
@@ -50,6 +77,28 @@ export async function createDeck(deck: Deck): Promise<void> {
         created_at: deck.createdAt?.toISOString() || new Date().toISOString(),
     });
 
+    if (error) throw error;
+}
+
+/**
+ * @description 批量保存卡包 (For Sync)
+ */
+export async function saveDecks(decks: Deck[]) {
+    if (decks.length === 0) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const dbDecks = decks.map(d => ({
+        id: d.id,
+        user_id: user.id,
+        name: d.name,
+        description: d.description,
+        theme: d.theme,
+        created_at: d.createdAt instanceof Date ? d.createdAt.toISOString() : new Date(d.createdAt).toISOString(),
+        updated_at: new Date().toISOString()
+    }));
+
+    const { error } = await supabase.from('decks').upsert(dbDecks, { onConflict: 'id' });
     if (error) throw error;
 }
 
@@ -84,20 +133,76 @@ export async function getDeckById(id: string): Promise<Deck | undefined> {
 
 /**
  * @description 获取所有卡片 (可按 deckId 过滤)
+ * 注意: Supabase 默认限制 1000 条，这里使用 range 提升到 10000
  */
 export async function getAllCards(deckId?: string): Promise<WordCard[]> {
-    let query = supabase.from('cards').select('*');
-    if (deckId) {
-        query = query.eq('deck_id', deckId);
+    const allCards: WordCard[] = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+        let query = supabase.from('cards').select('*').range(offset, offset + PAGE_SIZE - 1);
+        if (deckId) {
+            query = query.eq('deck_id', deckId);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('获取卡片失败:', error);
+            break;
+        }
+
+        if (data && data.length > 0) {
+            allCards.push(...data.map(mapDbCardToWordCard));
+            offset += PAGE_SIZE;
+            // If we got < PAGE_SIZE, it's the last page.
+            hasMore = data.length === PAGE_SIZE;
+        } else {
+            hasMore = false;
+        }
     }
 
-    const { data, error } = await query;
-    if (error) {
-        console.error('获取卡片失败:', error);
-        return [];
+    console.log(`[Supabase] getAllCards pulled total: ${allCards.length}`);
+    return allCards;
+}
+
+/**
+ * @description 获取自上次同步以来更新的卡片 (增量同步)
+ */
+export async function getCardsUpdatedSince(timestamp: number): Promise<WordCard[]> {
+    const allCards: WordCard[] = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
+    const timeStr = new Date(timestamp).toISOString();
+
+    while (hasMore) {
+        // Query: updated_at > timestamp OR created_at > timestamp
+        // Supabase PostgREST syntax for OR is: .or(column1.gt.val,column2.gt.val)
+        let query = supabase
+            .from('cards')
+            .select('*')
+            .or(`updated_at.gt.${timeStr},created_at.gt.${timeStr}`)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('获取增量卡片失败:', error);
+            break;
+        }
+
+        if (data && data.length > 0) {
+            allCards.push(...data.map(mapDbCardToWordCard));
+            offset += PAGE_SIZE;
+            hasMore = data.length === PAGE_SIZE;
+        } else {
+            hasMore = false;
+        }
     }
 
-    return (data || []).map(mapDbCardToWordCard);
+    console.log(`[Supabase] getCardsUpdatedSince pulled: ${allCards.length}`);
+    return allCards;
 }
 
 /**
@@ -113,6 +218,27 @@ export async function saveCard(card: WordCard): Promise<void> {
 }
 
 /**
+ * @description 批量保存卡片（性能优化）
+ * 每批最多 100 张卡片
+ */
+export async function saveCards(cards: WordCard[]): Promise<void> {
+    if (cards.length === 0) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('用户未登录');
+
+    const BATCH_SIZE = 100;
+    const dbCards = cards.map(card => mapWordCardToDb(card, user.id));
+
+    // 分批插入
+    for (let i = 0; i < dbCards.length; i += BATCH_SIZE) {
+        const batch = dbCards.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('cards').upsert(batch, { onConflict: 'id' });
+        if (error) throw error;
+    }
+}
+
+/**
  * @description 删除卡片
  */
 export async function deleteCard(id: string): Promise<void> {
@@ -121,21 +247,43 @@ export async function deleteCard(id: string): Promise<void> {
 }
 
 /**
- * @description 获取新卡片 (State.New)
+ * @description 获取新卡片 (State.New) - 使用分页获取全部
  */
 export async function getNewCards(deckId?: string): Promise<WordCard[]> {
-    let query = supabase.from('cards').select('*').eq('state', State.New).eq('is_familiar', false);
-    if (deckId) {
-        query = query.eq('deck_id', deckId);
+    const allCards: WordCard[] = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+        let query = supabase
+            .from('cards')
+            .select('*')
+            .eq('state', State.New)
+            .eq('is_familiar', false)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (deckId) {
+            query = query.eq('deck_id', deckId);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('获取新卡片失败:', error);
+            break;
+        }
+
+        if (data && data.length > 0) {
+            allCards.push(...data.map(mapDbCardToWordCard));
+            offset += PAGE_SIZE;
+            hasMore = data.length === PAGE_SIZE;
+        } else {
+            hasMore = false;
+        }
     }
 
-    const { data, error } = await query;
-    if (error) {
-        console.error('获取新卡片失败:', error);
-        return [];
-    }
-
-    return (data || []).map(mapDbCardToWordCard);
+    console.log(`[Supabase] getNewCards returned ${allCards.length} cards (paginated)`);
+    return allCards;
 }
 
 /**
@@ -143,47 +291,77 @@ export async function getNewCards(deckId?: string): Promise<WordCard[]> {
  */
 export async function getDueCards(deckId?: string): Promise<WordCard[]> {
     const now = new Date().toISOString();
-    let query = supabase
-        .from('cards')
-        .select('*')
-        .lte('due', now)
-        .neq('state', State.New)
-        .eq('is_familiar', false);
+    const allCards: WordCard[] = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
 
-    if (deckId) {
-        query = query.eq('deck_id', deckId);
+    while (hasMore) {
+        let query = supabase
+            .from('cards')
+            .select('*')
+            .lte('due', now)
+            .neq('state', State.New)
+            .eq('is_familiar', false)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (deckId) {
+            query = query.eq('deck_id', deckId);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('获取待复习卡片失败:', error);
+            break;
+        }
+
+        if (data && data.length > 0) {
+            allCards.push(...data.map(mapDbCardToWordCard));
+            offset += PAGE_SIZE;
+            hasMore = data.length === PAGE_SIZE;
+        } else {
+            hasMore = false;
+        }
     }
-
-    const { data, error } = await query;
-    if (error) {
-        console.error('获取待复习卡片失败:', error);
-        return [];
-    }
-
-    return (data || []).map(mapDbCardToWordCard);
+    return allCards;
 }
 
 /**
  * @description 获取活跃卡片 (New + Learning + Relearning)
  */
 export async function getActiveCards(deckId?: string): Promise<WordCard[]> {
-    let query = supabase
-        .from('cards')
-        .select('*')
-        .in('state', [State.New, State.Learning, State.Relearning])
-        .eq('is_familiar', false);
+    const allCards: WordCard[] = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
 
-    if (deckId) {
-        query = query.eq('deck_id', deckId);
+    while (hasMore) {
+        let query = supabase
+            .from('cards')
+            .select('*')
+            .in('state', [State.New, State.Learning, State.Relearning])
+            .eq('is_familiar', false)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (deckId) {
+            query = query.eq('deck_id', deckId);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('获取活跃卡片失败:', error);
+            break;
+        }
+
+        if (data && data.length > 0) {
+            allCards.push(...data.map(mapDbCardToWordCard));
+            offset += PAGE_SIZE;
+            hasMore = data.length === PAGE_SIZE;
+        } else {
+            hasMore = false;
+        }
     }
-
-    const { data, error } = await query;
-    if (error) {
-        console.error('获取活跃卡片失败:', error);
-        return [];
-    }
-
-    return (data || []).map(mapDbCardToWordCard);
+    return allCards;
 }
 
 /**
@@ -255,6 +433,35 @@ export async function addReviewLog(log: ReviewLog & { cardId: string }): Promise
         review: log.review?.toISOString() || new Date().toISOString(),
     });
 
+    if (error) throw error;
+}
+
+/**
+ * @description 批量保存日志 (For Sync)
+ */
+export async function saveLogs(logs: (ReviewLog & { cardId: string })[]) {
+    if (logs.length === 0) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Filter out minimal valid logs
+    const validLogs = logs.map(log => ({
+        user_id: user.id,
+        card_id: log.cardId,
+        rating: log.rating,
+        state: log.state,
+        due: log.due?.toISOString() || null,
+        stability: log.stability,
+        difficulty: log.difficulty,
+        elapsed_days: log.elapsed_days,
+        last_elapsed_days: log.last_elapsed_days,
+        scheduled_days: log.scheduled_days,
+        review: log.review instanceof Date ? log.review.toISOString() : new Date(log.review).toISOString(),
+    }));
+
+    // Logs are usually append-only. But ID collision should be ignored?
+    // We typically want to IGNORE duplicates for logs.
+    const { error } = await supabase.from('review_logs').upsert(validLogs, { onConflict: 'id', ignoreDuplicates: true });
     if (error) throw error;
 }
 
@@ -541,20 +748,12 @@ export async function initSupabaseDB(): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return; // Not logged in, skip init
 
-    // Ensure default "Vocabulary Book" deck exists
-    const { data: existingDeck } = await supabase
-        .from('decks')
-        .select('id')
-        .eq('id', 'vocabulary-book')
-        .single();
-
-    if (!existingDeck) {
-        await supabase.from('decks').insert({
-            id: 'vocabulary-book',
-            user_id: user.id,
-            name: '生词本',
-            description: '默认生词本，用于存放日常收集的单词',
-            created_at: new Date().toISOString(),
-        });
-    }
+    // Ensure default "Vocabulary Book" deck exists using upsert to avoid conflicts
+    await supabase.from('decks').upsert({
+        id: 'vocabulary-book',
+        user_id: user.id,
+        name: '生词本',
+        description: '默认生词本，用于存放日常收集的单词',
+        created_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
 }

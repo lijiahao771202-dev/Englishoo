@@ -55,10 +55,21 @@ interface MyDB extends DBSchema {
             timestamp: number;
         };
     };
+    // v10 新增: 缓存 AI 生成的内容 (例句、助记词、释义等)
+    ai_content_cache: {
+        key: string; // word:type (e.g. "abandon:example")
+        value: {
+            key: string; // Store key in value for IndexedDB keyPath
+            word: string;
+            type: 'example' | 'mnemonic' | 'meaning' | 'phrases' | 'derivatives' | 'roots' | 'syllables';
+            content: string;
+            timestamp: number;
+        };
+    };
 }
 
 const DB_NAME = 'englishoo-db';
-const DB_VERSION = 9; // Incremented version to 9 to resolve mismatch
+const DB_VERSION = 10; // v10: Added ai_content_cache
 
 let dbPromise: Promise<IDBPDatabase<MyDB>>;
 
@@ -130,6 +141,13 @@ export function getDB() {
                 if (oldVersion < 7) {
                     if (!db.objectStoreNames.contains('ai_graph_cache')) {
                         db.createObjectStore('ai_graph_cache', { keyPath: 'word' });
+                    }
+                }
+
+                // v10: Create AI Content Cache Store (for examples, mnemonics, etc.)
+                if (oldVersion < 10) {
+                    if (!db.objectStoreNames.contains('ai_content_cache')) {
+                        db.createObjectStore('ai_content_cache', { keyPath: 'key' });
                     }
                 }
             },
@@ -216,7 +234,11 @@ export async function addToVocabularyDeck(word: string) {
 
 export async function createDeck(deck: Deck) {
     const db = await getDB();
-    return db.add('decks', deck);
+    const deckWithTimestamp = {
+        ...deck,
+        updatedAt: Date.now()
+    };
+    return db.put('decks', deckWithTimestamp); // Use put to allow updates
 }
 
 export async function getAllDecks() {
@@ -266,7 +288,42 @@ export async function deleteDeck(id: string) {
  */
 export async function saveCard(card: WordCard) {
     const db = await getDB();
-    return db.put('cards', card);
+    const cardWithTimestamp = {
+        ...card,
+        updatedAt: Date.now()
+    };
+    return db.put('cards', cardWithTimestamp);
+}
+
+/**
+ * @description 批量保存卡片 (Local First Optimization)
+ */
+export async function saveCards(cards: WordCard[]) {
+    const db = await getDB();
+    const tx = db.transaction('cards', 'readwrite');
+    const store = tx.objectStore('cards');
+
+    // We update timestamp for all input cards if they don't have one?
+    // Actually, if we are saving from UI, we want to update.
+    // If we are saving from Sync (Pull), we might want to preserve the remote timestamp?
+    // BUT SyncManager usually only calls this for PULL.
+
+    // Since SyncManager uses this for "Pull from Cloud", we should respect the incoming data.
+    // The incoming data SHOULD have correct timestamps.
+    // However, if we use this for "Batch Edit" in UI, we want new timestamps.
+    // For now, let's assume if updatedAt is present, keep it (Sync), else set it (Local Edit).
+
+    const now = Date.now();
+    for (const card of cards) {
+        // If it's a local UI update, updatedAt might be undefined or old.
+        // If it's a Sync update, updatedAt comes from server.
+        const finalCard = {
+            ...card,
+            updatedAt: card.updatedAt || now
+        };
+        await store.put(finalCard);
+    }
+    await tx.done;
 }
 
 /**
@@ -481,4 +538,39 @@ export async function getAIGraphCache(word: string) {
 export async function saveAIGraphCache(data: { word: string; relatedItems: Array<{ word: string; meaning: string; relation: string }>; timestamp: number }) {
     const db = await getDB();
     return db.put('ai_graph_cache', data);
+}
+
+// ==================== AI Content Cache (v10) ====================
+type AIContentType = 'example' | 'mnemonic' | 'meaning' | 'phrases' | 'derivatives' | 'roots' | 'syllables';
+
+/**
+ * @description 获取 AI 生成的内容缓存 (例句、助记词等)
+ * @param word 单词
+ * @param type 内容类型
+ * @param maxAge 最大缓存时间 (ms)，默认 7 天
+ */
+export async function getAIContentCache(word: string, type: AIContentType, maxAge = 7 * 24 * 60 * 60 * 1000): Promise<string | null> {
+    const db = await getDB();
+    const key = `${word}:${type}`;
+    const cached = await db.get('ai_content_cache', key);
+
+    if (cached && (Date.now() - cached.timestamp) < maxAge) {
+        return cached.content;
+    }
+    return null;
+}
+
+/**
+ * @description 保存 AI 生成的内容到缓存
+ */
+export async function saveAIContentCache(word: string, type: AIContentType, content: string): Promise<void> {
+    const db = await getDB();
+    const key = `${word}:${type}`;
+    await db.put('ai_content_cache', {
+        key,
+        word,
+        type,
+        content,
+        timestamp: Date.now(),
+    });
 }

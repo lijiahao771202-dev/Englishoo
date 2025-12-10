@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import { EmbeddingService } from '@/lib/embedding';
-import { getCardByWord } from '@/lib/db';
+import { getCardByWord } from '@/lib/data-source';
 
 interface LocalGraphProps {
   word: string;
@@ -38,7 +38,7 @@ export const LocalGraph: React.FC<LocalGraphProps> = ({ word, className }) => {
       try {
         const service = EmbeddingService.getInstance();
         const network = await service.getNetwork(word);
-        
+
         if (!isMounted) return;
 
         if (network && network.connections.length > 0) {
@@ -62,18 +62,18 @@ export const LocalGraph: React.FC<LocalGraphProps> = ({ word, className }) => {
               loadedMeanings[w] = card.meaning;
             }
           }));
-          
+
           if (isMounted) {
             setMeanings(loadedMeanings);
           }
 
         } else {
-           setGraphData({ nodes: [{ id: word, group: 1, val: 10 }], links: [] } as any);
-           // Fetch meaning for the single word
-           const card = await getCardByWord(word);
-           if (isMounted && card) {
-             setMeanings({ [word]: card.meaning });
-           }
+          setGraphData({ nodes: [{ id: word, group: 1, val: 10 }], links: [] } as any);
+          // Fetch meaning for the single word
+          const card = await getCardByWord(word);
+          if (isMounted && card) {
+            setMeanings({ [word]: card.meaning });
+          }
         }
       } catch (error) {
         console.error('Failed to load local graph:', error);
@@ -109,45 +109,45 @@ export const LocalGraph: React.FC<LocalGraphProps> = ({ word, className }) => {
           nodeCanvasObject={(node, ctx, globalScale) => {
             // Safety check: Ensure coordinates are finite numbers
             if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
-                return;
+              return;
             }
 
             const label = node.id as string;
             const fontSize = (node.group === 1 ? 14 : 12) / globalScale;
             ctx.font = `${fontSize}px Sans-Serif`;
-            
+
             // Node body (Liquid Sphere)
             ctx.beginPath();
             const r = (node.val as number || 5);
 
             // Safety check for radius
             if (!Number.isFinite(r) || r <= 0) {
-                return;
+              return;
             }
 
             ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI, false);
-            
+
             // Gradient for 3D Liquid effect
             try {
-                const gradient = ctx.createRadialGradient(
-                    node.x! - r/3, node.y! - r/3, r/10,
-                    node.x!, node.y!, r
-                );
-                gradient.addColorStop(0, node.group === 1 ? '#c4b5fd' : '#ddd6fe'); // Highlight
-                gradient.addColorStop(1, node.group === 1 ? '#7c3aed' : '#8b5cf6'); // Base
-                ctx.fillStyle = gradient;
+              const gradient = ctx.createRadialGradient(
+                node.x! - r / 3, node.y! - r / 3, r / 10,
+                node.x!, node.y!, r
+              );
+              gradient.addColorStop(0, node.group === 1 ? '#c4b5fd' : '#ddd6fe'); // Highlight
+              gradient.addColorStop(1, node.group === 1 ? '#7c3aed' : '#8b5cf6'); // Base
+              ctx.fillStyle = gradient;
             } catch (e) {
-                ctx.fillStyle = node.group === 1 ? '#7c3aed' : '#8b5cf6';
+              ctx.fillStyle = node.group === 1 ? '#7c3aed' : '#8b5cf6';
             }
-            
+
             ctx.fill();
-            
+
             // Glow
             ctx.shadowColor = '#8b5cf6';
             ctx.shadowBlur = 10;
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 0;
-            
+
             // Text Label
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.textAlign = 'center';
@@ -166,7 +166,7 @@ export const LocalGraph: React.FC<LocalGraphProps> = ({ word, className }) => {
           }}
         />
       )}
-      
+
       {/* Overlay Info */}
       <div className="absolute bottom-2 right-2 text-[10px] text-white/40 pointer-events-none">
         Semantic Network

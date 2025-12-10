@@ -1,4 +1,4 @@
-import { addToVocabularyDeck, createDeck, saveCard } from './db';
+import { addToVocabularyDeck, createDeck, saveCard } from './data-source';
 import { EmbeddingService } from './embedding';
 import { createNewWordCard } from './fsrs';
 import type { Deck } from '@/types';
@@ -99,24 +99,19 @@ export async function seedFromLocalJSON(onProgress?: (current: number, total: nu
                 const exampleTranslate = content?.sentence?.sentences?.[0]?.sCn || '';
                 const phonetic = content?.usphone || content?.ukphone || '';
 
-                // Add to DB with rich data
-                // We need to modify addToVocabularyDeck or call db directly
-                // For now, let's reuse addToVocabularyDeck but we need to update it to accept more fields or update after adding
-
-                // Since addToVocabularyDeck is simple, we'll do it manually here to ensure rich data
-                const { getDB } = await import('./db');
+                // Add to DB with rich data (via data-source for cloud sync)
                 const { createNewWordCard } = await import('./fsrs');
-                const db = await getDB();
+                const { getAllCards } = await import('./data-source');
 
                 // Check exist
-                const existing = await db.getAllFromIndex('cards', 'deckId', 'vocabulary-book');
+                const existing = await getAllCards('vocabulary-book');
                 if (!existing.some(c => c.word.toLowerCase() === word.toLowerCase())) {
                     const newCard = createNewWordCard(word, meaning, "unknown", 'vocabulary-book');
                     newCard.phonetic = phonetic;
                     newCard.example = example;
                     newCard.exampleTranslate = exampleTranslate;
 
-                    await db.put('cards', newCard);
+                    await saveCard(newCard);
                 }
 
                 // Embeddings

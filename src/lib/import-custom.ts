@@ -1,6 +1,7 @@
-import { createDeck, saveCard } from './db';
+import { createDeck, saveCards } from './data-source';
 import { createNewWordCard } from './fsrs';
 import { EmbeddingService } from './embedding';
+import type { WordCard } from '@/types';
 
 interface CustomImportProgress {
   count: number;
@@ -9,7 +10,7 @@ interface CustomImportProgress {
 }
 
 /**
- * @description 导入自定义 JSON 数据集
+ * @description 导入自定义 JSON 数据集 (优化版 - 批量插入)
  * @param fileUrl JSON 文件的 URL (相对于 public 目录)
  * @param deckName 卡包名称
  * @param onProgress 进度回调
@@ -24,11 +25,11 @@ export async function importCustomDeck(
   if (!response.ok) {
     throw new Error(`Failed to fetch file: ${response.statusText}`);
   }
-  
+
   // Try to parse as JSON array first, then fallback to NDJSON (newline delimited JSON)
   let data: any[] = [];
   const text = await response.text();
-  
+
   try {
     // Try parsing as standard JSON array
     const json = JSON.parse(text);
@@ -49,7 +50,7 @@ export async function importCustomDeck(
       throw new Error('Invalid JSON format: content is neither a JSON array nor NDJSON.');
     }
   }
-  
+
   if (!Array.isArray(data) || data.length === 0) {
     throw new Error('No valid data found in file.');
   }
@@ -64,13 +65,16 @@ export async function importCustomDeck(
     description: `Imported from ${fileUrl}`
   });
 
-  // 3. Parse and Save Cards
+  // 3. Parse Cards (先解析所有卡片，再批量保存)
   const total = data.length;
   const wordsToEmbed: string[] = [];
+  const cardsToSave: WordCard[] = [];
+
+  onProgress({ count: 0, total, currentWord: '解析数据...' });
 
   for (let i = 0; i < total; i++) {
     const item = data[i];
-    
+
     // Safe parsing with optional chaining
     const word = item.headWord || item.content?.word?.wordHead;
     if (!word) continue;
@@ -78,7 +82,7 @@ export async function importCustomDeck(
     // Extract meaning (first translation)
     const translations = item.content?.word?.content?.trans || [];
     const meaning = translations.map((t: any) => `${t.pos}. ${t.tranCn}`).join('; ') || '暂无释义';
-    
+
     // Extract part of speech (from first translation)
     const partOfSpeech = translations[0]?.pos || 'unknown';
 
@@ -105,39 +109,40 @@ export async function importCustomDeck(
     card.phonetic = phonetic;
     card.exampleMeaning = exampleMeaning;
 
-    // Save to DB
-    await saveCard(card);
+    cardsToSave.push(card);
     wordsToEmbed.push(word);
 
-    // Update progress
-    onProgress({
-      count: i + 1,
-      total,
-      currentWord: word
-    });
-
-    // Yield to UI every 50 items
-    if (i % 50 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 0));
+    // Update progress every 100 items during parsing
+    if (i % 100 === 0) {
+      onProgress({ count: i, total, currentWord: `解析: ${word}` });
+      await new Promise(resolve => setTimeout(resolve, 0)); // Yield to UI
     }
   }
 
-  // 4. Batch Generate Embeddings & Connections
-  // This runs in background mostly, but we await it here to ensure it's done before finishing
-  if (wordsToEmbed.length > 0) {
-    await EmbeddingService.getInstance().batchProcess(wordsToEmbed, (p, t, stage) => {
-       // Map embedding progress to remaining percentage (optional, or just log)
-       // Since import is "done" from data perspective, we might not block UI for this, 
-       // but user requested "import", so it's better to finish fully.
-       // Let's update progress text via callback if we want, but for now just let it run.
-       // We can reuse onProgress to show "Processing embeddings..."
-       onProgress({
-           count: p,
-           total: t,
-           currentWord: `生成关联: ${stage} ${Math.round(p/t*100)}%`
-       });
+  // 4. Batch Save Cards (批量保存，大幅提升性能)
+  onProgress({ count: 0, total: cardsToSave.length, currentWord: '批量保存到数据库...' });
+
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < cardsToSave.length; i += BATCH_SIZE) {
+    const batch = cardsToSave.slice(i, i + BATCH_SIZE);
+    await saveCards(batch);
+    onProgress({
+      count: Math.min(i + BATCH_SIZE, cardsToSave.length),
+      total: cardsToSave.length,
+      currentWord: `已保存 ${Math.min(i + BATCH_SIZE, cardsToSave.length)}/${cardsToSave.length}`
     });
   }
 
-  return { count: total, deckId };
+  // 5. Batch Generate Embeddings & Connections (可选，耗时较长)
+  if (wordsToEmbed.length > 0) {
+    await EmbeddingService.getInstance().batchProcess(wordsToEmbed, (p, t, stage) => {
+      onProgress({
+        count: p,
+        total: t,
+        currentWord: `生成关联: ${stage} ${Math.round(p / t * 100)}%`
+      });
+    });
+  }
+
+  return { count: cardsToSave.length, deckId };
 }
