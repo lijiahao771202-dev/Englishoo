@@ -22,6 +22,8 @@ import { seedFromLocalJSON } from '@/lib/seed';
 import { EmbeddingService, type EmbeddingConfig } from '@/lib/embedding';
 import { GlobalSelectionMenu } from '@/components/GlobalSelectionMenu';
 import { SettingsModal, DEFAULT_SETTINGS, type LiquidGlassSettings } from '@/components/SettingsModal';
+import { UserProfileMenu } from '@/components/UserProfileMenu';
+import { AmbientPlayer } from '@/components/AmbientPlayer';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
@@ -872,22 +874,16 @@ function AppContent() {
             {/* Auth Modal */}
             <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
-            {/* User Auth Button (Fixed Top Right) */}
-            <div className="fixed top-4 right-4 z-40">
+
+
+            {/* Top Right Controls (Aggregated) */}
+            <div className="fixed top-4 right-4 z-40 flex items-center gap-3">
+                {/* User Profile / Login */}
                 {user ? (
-                    <div className="flex items-center gap-2">
-                        <div className="bg-white/10 border border-white/20 rounded-full px-4 py-2 text-sm text-white/80 backdrop-blur-md flex items-center gap-2">
-                            <User className="w-4 h-4" />
-                            <span className="max-w-[100px] truncate">{user.email}</span>
-                        </div>
-                        <button
-                            onClick={signOut}
-                            className="p-2 rounded-full bg-white/10 hover:bg-red-500/20 text-white/50 hover:text-red-400 transition-colors backdrop-blur-md border border-white/10"
-                            title="登出"
-                        >
-                            <LogOut className="w-4 h-4" />
-                        </button>
-                    </div>
+                    <>
+                        <AmbientPlayer />
+                        <UserProfileMenu onOpenGlobalSettings={() => setIsGlassSettingsOpen(true)} />
+                    </>
                 ) : (
                     <button
                         onClick={() => setShowAuthModal(true)}
@@ -900,24 +896,12 @@ function AppContent() {
             </div>
 
             <GlobalSelectionMenu />
-            {/* Global Header */}
-            <header className="flex justify-between items-center mb-8">
-                <div className="flex items-center gap-2">
-                    <h1
-                        onClick={handleBackToDecks}
-                        className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-400 cursor-pointer"
-                    >
-                        Englishoo
-                    </h1>
-                </div>
 
-                <button onClick={() => setIsGlassSettingsOpen(true)} className="p-2 rounded-full hover:bg-white/10">
-                    <SettingsIcon className="w-6 h-6" />
-                </button>
-            </header>
+            {/* Header Removed as per user request */}
 
             {/* Main Content */}
-            <main className="container mx-auto px-4 pt-24 pb-12 min-h-screen">
+            {/* Main Content */}
+            <main className="container mx-auto px-4 pt-12 pb-12 min-h-screen">
                 <AnimatePresence mode="wait">
                     {view === 'decks' && (
                         <motion.div

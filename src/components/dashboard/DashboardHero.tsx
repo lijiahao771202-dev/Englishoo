@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, CheckCircle2, TrendingUp, Sparkles, Play } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUserProfile } from '@/hooks/useUserProfile';
 
 interface DashboardHeroProps {
     stats: {
@@ -13,6 +15,8 @@ interface DashboardHeroProps {
 }
 
 export function DashboardHero({ stats, onStartSession, onOpenShadowing }: DashboardHeroProps) {
+    const { user } = useAuth();
+    const { profile } = useUserProfile(user?.email);
     const [greeting, setGreeting] = useState('');
     const [dateString, setDateString] = useState('');
 
@@ -86,7 +90,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                             {greeting},
                         </h1>
                         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight">
-                            Jiahao
+                            {profile.nickname}
                         </h1>
                     </motion.div>
 
