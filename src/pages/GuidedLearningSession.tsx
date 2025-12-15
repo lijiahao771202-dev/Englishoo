@@ -8,7 +8,7 @@ import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/
 import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache } from '@/lib/data-source';
 import { cn } from '@/lib/utils';
 import { speak } from '@/lib/tts';
-import { playClickSound, playSuccessSound, playFailSound, playPassSound, playSpellingSuccessSound } from '@/lib/sounds';
+import { playClickSound, playSuccessSound, playFailSound, playPassSound, playSpellingSuccessSound, playSessionCompleteSound, playKnowSound } from '@/lib/sounds';
 import { Flashcard } from '@/components/Flashcard';
 import type { WordCard } from '@/types';
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, generateEdgeLabels, generateEdgeLabelsOnly, generateBridgingExample, generateRelatedWords } from '@/lib/deepseek';
@@ -1315,7 +1315,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
     // 1. Learn -> Choice
     const handleKnow = useCallback(() => {
-        playPassSound();
+        playKnowSound();
 
         // Trigger "Light Up" animation
         if (currentItem) {
@@ -1568,6 +1568,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     if (connectionQueue.length > 0) {
                         setPhase('connection-learning');
                     } else {
+                        playSessionCompleteSound();
                         setPhase('summary');
                     }
                 }
@@ -1576,6 +1577,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 if (connectionQueue.length > 0) {
                     setPhase('connection-learning');
                 } else {
+                    playSessionCompleteSound();
                     setPhase('summary');
                 }
             }

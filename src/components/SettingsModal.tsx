@@ -4,10 +4,11 @@
  * 支持实时预览和恢复默认设置。
  */
 import { useState, useEffect } from 'react';
-import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key } from 'lucide-react';
+import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2 } from 'lucide-react';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { importCustomDeck } from '@/lib/import-custom';
 import type { EmbeddingConfig } from '@/lib/embedding';
+import { playClickSound, playSuccessSound, playFailSound, playKnowSound, playReviewAgainSound, playReviewHardSound, playReviewGoodSound, playReviewEasySound, playSessionCompleteSound } from '@/lib/sounds';
 
 export interface LiquidGlassSettings {
   opacity: number;
@@ -50,7 +51,7 @@ export function SettingsModal({
   apiKey,
   onApiKeyChange
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api'>('visual');
+  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio'>('visual');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, word: '' });
   const [bgUrlInput, setBgUrlInput] = useState('');
@@ -244,6 +245,12 @@ export function SettingsModal({
             className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'api' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
             <Key className="w-4 h-4" /> API
+          </button>
+          <button
+            onClick={() => setActiveTab('audio')}
+            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'audio' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+          >
+            <Volume2 className="w-4 h-4" /> 音效
           </button>
         </div>
 
@@ -637,6 +644,45 @@ export function SettingsModal({
                   onChange={(e) => handleEmbeddingChange('maxConnections', parseFloat(e.target.value))}
                   className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
                 />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'audio' && (
+            <div className="space-y-6">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                  <Volume2 className="w-4 h-4 text-pink-400" /> 音效测试与调试
+                </h3>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">基础交互</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={playClickSound} className="p-3 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs text-left">👆 点击 (Click)</button>
+                      <button onClick={playKnowSound} className="p-3 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-200 text-xs text-left">✨ 认识 (Know)</button>
+                      <button onClick={playSuccessSound} className="p-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-xs text-left">🎵 拼写成功 (Chime)</button>
+                      <button onClick={playFailSound} className="p-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs text-left">❌ 失败 (Fail)</button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">复习评级</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <button onClick={playReviewAgainSound} className="p-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-200 text-xs">1 重来</button>
+                      <button onClick={playReviewHardSound} className="p-3 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-200 text-xs">2 困难</button>
+                      <button onClick={playReviewGoodSound} className="p-3 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-200 text-xs">3 良好</button>
+                      <button onClick={playReviewEasySound} className="p-3 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-200 text-xs">4 简单</button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">场景音效</label>
+                    <button onClick={playSessionCompleteSound} className="w-full p-4 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 border border-white/10 text-white font-medium flex items-center justify-center gap-2 shadow-lg">
+                      🎉 学习完成 (Victory Fanfare)
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

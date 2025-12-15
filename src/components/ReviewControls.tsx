@@ -2,7 +2,7 @@ import { useMemo, useEffect } from 'react';
 import { Rating } from 'ts-fsrs';
 import { cn } from '@/lib/utils';
 import type { RecordLog } from 'ts-fsrs';
-import { playFailSound, playPassSound } from '@/lib/sounds';
+import { playReviewAgainSound, playReviewHardSound, playReviewGoodSound, playReviewEasySound } from '@/lib/sounds';
 
 interface ReviewControlsProps {
   onRate: (rating: Rating) => void;
@@ -45,19 +45,19 @@ export function ReviewControls({ onRate, disabled, previews }: ReviewControlsPro
 
       switch (e.key) {
         case '1':
-          playFailSound();
+          playReviewAgainSound();
           onRate(Rating.Again);
           break;
         case '2':
-          playPassSound();
+          playReviewHardSound();
           onRate(Rating.Hard);
           break;
         case '3':
-          playPassSound();
+          playReviewGoodSound();
           onRate(Rating.Good);
           break;
         case '4':
-          playPassSound();
+          playReviewEasySound();
           onRate(Rating.Easy);
           break;
       }
@@ -102,8 +102,10 @@ export function ReviewControls({ onRate, disabled, previews }: ReviewControlsPro
         <button
           key={btn.label}
           onClick={() => {
-            if (btn.rating === Rating.Again) playFailSound();
-            else playPassSound();
+            if (btn.rating === Rating.Again) playReviewAgainSound();
+            else if (btn.rating === Rating.Hard) playReviewHardSound();
+            else if (btn.rating === Rating.Good) playReviewGoodSound();
+            else if (btn.rating === Rating.Easy) playReviewEasySound();
             onRate(btn.rating);
           }}
           disabled={disabled}
