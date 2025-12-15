@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Sparkles, BookOpen, BrainCircuit, Eye, Edit3, Save, RefreshCw, Volume2, Heart, CheckCircle, Keyboard, Link2, Sprout, RotateCcw, Network, FileText } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { Rating } from 'ts-fsrs';
-import { speak } from '@/lib/tts';
+import { speak, stopAll } from '@/lib/tts';
 import { playClickSound, playSuccessSound } from '@/lib/sounds';
 import { NotesModal } from './NotesModal';
 
@@ -128,6 +128,7 @@ export function Flashcard({
   const [tabs, setTabs] = useState([
     { id: 'example', label: '例句', icon: Eye },
     { id: 'mnemonic', label: '助记', icon: BrainCircuit },
+    { id: 'roots', label: '词根', icon: Sprout },
     { id: 'notes', label: '笔记', icon: FileText },
   ]);
 
@@ -416,7 +417,10 @@ export function Flashcard({
     const timer = setTimeout(() => {
       speakWord();
     }, 100);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      stopAll(); // 切换卡片时停止之前的 TTS
+    };
   }, [speakWord]);
 
   const handleSpeak = (e: React.MouseEvent) => {
@@ -588,7 +592,20 @@ export function Flashcard({
         )}>
           <div
             className="relative group/word mb-4 max-w-full px-8 py-4 transition-all duration-500"
-            onMouseEnter={() => card.roots && card.roots.length > 0 && setShowRootsTooltip(true)}
+            onMouseEnter={async () => {
+              // 悬浮时自动生成词根（如果没有）
+              if (!card.roots && onGenerateRoots && !isGeneratingRoots) {
+                setIsGeneratingRoots(true);
+                try {
+                  await onGenerateRoots(card);
+                  setShowRootsTooltip(true);
+                } finally {
+                  setIsGeneratingRoots(false);
+                }
+              } else if (card.roots && card.roots.length > 0) {
+                setShowRootsTooltip(true);
+              }
+            }}
             onMouseLeave={() => setShowRootsTooltip(false)}
           >
             {/* 词根词缀悬浮提示 */}
@@ -871,37 +888,6 @@ export function Flashcard({
                             <FormattedText content={card.meaning || ''} />
                           </div>
                         )}
-
-                        {/* Roots/Affixes Section (Merged) */}
-                        {(card.roots || isGeneratingRoots) && (
-                          <div className="mt-6 pt-6 border-t border-white/5">
-                            <h4 className="text-xs uppercase tracking-wider text-muted-foreground opacity-50 mb-3 flex items-center gap-2">
-                              <Sprout className="w-3 h-3" /> 词根词缀
-                            </h4>
-                            {isGeneratingRoots ? (
-                              <div className="flex items-center gap-2 text-sm text-white/40 animate-pulse">
-                                <RefreshCw className="w-3 h-3 animate-spin" />
-                                正在分析词源...
-                              </div>
-                            ) : card.roots && card.roots.length > 0 ? (
-                              <div className="grid gap-2">
-                                {card.roots.map((root, i) => (
-                                  <div key={i} className="flex items-start gap-3 p-2 rounded-lg bg-black/20 border border-white/5">
-                                    <span className="text-sm font-bold text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0 font-mono">
-                                      {root.root}
-                                    </span>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm text-white/80 font-medium">{root.meaning}</div>
-                                      <div className="text-xs text-white/40 mt-0.5">{root.description}</div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-sm text-white/30 italic">无词根信息</div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </motion.div>
                   )}
@@ -1032,24 +1018,24 @@ export function Flashcard({
                     </motion.div>
                   )}
 
-                  {/* Roots Nebula Visualization */}
+                  {/* 词根词缀 - 简洁列表形式 */}
                   {activeTab === 'roots' && (
                     <motion.div
                       key="roots"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="h-full flex flex-col"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="h-full overflow-y-auto"
                     >
-                      <div className="bg-white/5 p-5 rounded-2xl border border-white/5 h-full backdrop-blur-sm flex flex-col relative overflow-hidden group/roots">
-                        <div className="flex justify-between items-center mb-4 z-10">
+                      <div className="bg-white/5 p-5 rounded-2xl border border-white/5 backdrop-blur-sm">
+                        <div className="flex justify-between items-center mb-4">
                           <h4 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 opacity-50">
-                            <Sprout className="w-3 h-3" /> 词根星云 (Root Nebula)
+                            <Sprout className="w-3 h-3" /> 词根词缀
                           </h4>
                           <button
                             onClick={handleGenerateRootsClick}
                             className={cn(
-                              "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 opacity-0 group-hover/roots:opacity-100 transition-opacity",
+                              "p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1 transition-opacity",
                               isGeneratingRoots && "animate-spin"
                             )}
                           >
@@ -1057,65 +1043,47 @@ export function Flashcard({
                           </button>
                         </div>
 
-                        {card.roots && card.roots.length > 0 ? (
-                          <div className="flex-1 relative overflow-y-auto custom-scrollbar">
+                        {isGeneratingRoots ? (
+                          <div className="flex items-center justify-center text-white/40 text-sm animate-pulse py-8">
+                            <RefreshCw className="w-4 h-4 animate-spin mr-2" /> 正在分析词源...
+                          </div>
+                        ) : card.roots && card.roots.length > 0 ? (
+                          <div className="space-y-3">
                             {card.roots.map((rootItem, idx) => (
-                              <div key={idx} className="mb-12 last:mb-0 relative min-h-[200px] flex items-center justify-center">
-                                {/* Nebula Background Effect */}
-                                <div className="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full scale-75" />
-
-                                {/* Solar System Layout */}
-                                <div className="relative w-full max-w-[300px] aspect-square flex items-center justify-center">
-                                  {/* Core (Root) */}
-                                  <div className="absolute z-10 w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 backdrop-blur-md flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
-                                    <span className="text-lg font-bold text-white">{rootItem.root}</span>
-                                    <span className="text-[10px] text-white/50">{rootItem.meaning}</span>
+                              <div key={idx} className="p-3 rounded-xl bg-black/20 border border-white/5">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-sm font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded font-mono">
+                                    {rootItem.root}
+                                  </span>
+                                  <span className="text-sm text-white/80">{rootItem.meaning}</span>
+                                </div>
+                                <p className="text-xs text-white/50 leading-relaxed">{rootItem.description}</p>
+                                {rootItem.cognates && rootItem.cognates.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-white/5">
+                                    <span className="text-[10px] text-white/30 uppercase">同源词：</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {rootItem.cognates.map((cognate, cIdx) => (
+                                        <span
+                                          key={cIdx}
+                                          className="text-xs px-2 py-0.5 rounded-full bg-white/5 text-white/60 cursor-pointer hover:bg-white/10 hover:text-white/80 transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onSemanticNeighborClick?.(cognate);
+                                          }}
+                                        >
+                                          {cognate}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
-
-                                  {/* Orbiting Cognates */}
-                                  {rootItem.cognates && rootItem.cognates.map((cognate, cIdx) => {
-                                    const total = rootItem.cognates!.length;
-                                    const angle = (cIdx / total) * 2 * Math.PI;
-                                    const radius = 80; // Distance from center
-                                    const x = Math.cos(angle) * radius;
-                                    const y = Math.sin(angle) * radius;
-
-                                    return (
-                                      <motion.div
-                                        key={cognate}
-                                        initial={{ opacity: 0, scale: 0 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        transition={{ delay: cIdx * 0.1 }}
-                                        className="absolute w-auto px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/80 backdrop-blur-md cursor-pointer hover:bg-white/15 hover:scale-110 transition-all shadow-sm"
-                                        style={{
-                                          transform: `translate(${x}px, ${y}px)`,
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onSemanticNeighborClick?.(cognate);
-                                        }}
-                                      >
-                                        {cognate}
-                                      </motion.div>
-                                    );
-                                  })}
-
-                                  {/* Orbit Rings */}
-                                  <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.6] pointer-events-none" />
-                                  <div className="absolute inset-0 border border-white/5 rounded-full scale-[0.8] pointer-events-none border-dashed opacity-50" />
-                                </div>
-
-                                {/* Description at bottom */}
-                                <div className="absolute bottom-0 w-full text-center px-4">
-                                  <p className="text-xs text-white/40">{rootItem.description}</p>
-                                </div>
+                                )}
                               </div>
                             ))}
                           </div>
                         ) : (
                           <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-3">
                             <Sprout className="w-8 h-8 opacity-50" />
-                            <p className="text-sm">暂无词根星云数据</p>
+                            <p className="text-sm">暂无词根数据</p>
                             <button
                               onClick={handleGenerateRootsClick}
                               className="px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-xs text-white/80 transition-colors border border-white/5"

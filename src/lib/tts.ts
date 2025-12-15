@@ -25,6 +25,8 @@ let currentAudio: HTMLAudioElement | null = null;
 // Global cancellation flag to prevent race conditions
 let isCancelled = false;
 let startTimeout: any = null; // Track pending start timeout
+let lastSpokenText: string = ''; // Track last spoken text
+let debounceTimeout: any = null; // Debounce rapid calls
 
 interface SpeakOptions {
   rate?: number;
@@ -36,24 +38,24 @@ interface SpeakOptions {
 
 export const stopAll = () => {
   isCancelled = true;
-  
+
   if (startTimeout) {
     clearTimeout(startTimeout);
     startTimeout = null;
   }
-  
+
   // 1. Stop HTML Audio
   if (currentAudio) {
     currentAudio.pause();
     currentAudio.currentTime = 0; // Reset
     currentAudio = null;
   }
-  
+
   // 2. Stop Web Speech API
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
-  
+
   // 3. Clear any ongoing timeouts or pending promises (conceptually)
   // (handled by checking isCancelled in async callbacks)
 };
@@ -63,6 +65,23 @@ export const cancelSpeech = stopAll;
 
 export const speak = (text: string, options: SpeakOptions = {}) => {
   if (!text) return;
+
+  // 防止快速重复调用同一个词
+  if (debounceTimeout) {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = null;
+  }
+
+  // 如果是同一个词且在短时间内重复调用，忽略
+  if (text === lastSpokenText) {
+    // 使用 debounce 延迟执行，避免重复
+    debounceTimeout = setTimeout(() => {
+      lastSpokenText = '';
+    }, 500);
+    return;
+  }
+
+  lastSpokenText = text;
 
   // Reset cancellation flag for new session
   isCancelled = false;
@@ -75,11 +94,11 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
 
   // Helper to wrap callbacks with cancellation check
   const safeStart = () => {
-      if (!isCancelled && onStart) onStart();
+    if (!isCancelled && onStart) onStart();
   };
   const safeEnd = () => {
-      if (!isCancelled && onEnd) onEnd();
-      // We don't reset isCancelled here to allow debounce/overlap protection
+    if (!isCancelled && onEnd) onEnd();
+    // We don't reset isCancelled here to allow debounce/overlap protection
   };
 
   // Strategy 1: Online Audio (Best for words/short phrases)
@@ -88,12 +107,12 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
     try {
       const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`);
       audio.playbackRate = rate;
-      
+
       audio.onplay = () => {
         console.log('TTS: Playing online audio');
         safeStart();
       };
-      
+
       audio.onended = () => {
         safeEnd();
         if (currentAudio === audio) currentAudio = null;
@@ -104,10 +123,10 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
         console.warn('TTS: Online audio failed, falling back to Web Speech API', e);
         speakNative(text, rate, safeStart, safeEnd, onError);
       };
-      
+
       currentAudio = audio;
       const playPromise = audio.play();
-      
+
       if (playPromise !== undefined) {
         playPromise.catch(error => {
           if (isCancelled) return; // Ignore errors if we cancelled
@@ -129,7 +148,7 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
 };
 
 const speakNative = (
-  text: string, 
+  text: string,
   rate: number,
   onStart?: () => void,
   onEnd?: () => void,
@@ -150,7 +169,7 @@ const speakNative = (
 
   // Try to find a good voice
   const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = 
+  const preferredVoice =
     voices.find(v => v.name.includes('Microsoft') && v.lang.startsWith('en')) || // Edge/Windows
     voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||    // Chrome
     voices.find(v => v.name === 'Samantha') ||                                   // macOS
@@ -162,7 +181,7 @@ const speakNative = (
 
   // Fix for Chrome/Safari garbage collection bug
   (window as any).currentUtterance = utterance;
-  
+
   utterance.onstart = () => {
     if (!isCancelled && onStart) onStart();
   };
@@ -178,27 +197,27 @@ const speakNative = (
     if ((window as any).currentUtterance === utterance) {
       (window as any).currentUtterance = null;
     }
-    
+
     if (isCancelled) return; // Ignore if cancelled
-    
+
     // Enhanced check for interruption
     if (e.error === 'interrupted' || e.error === 'canceled') {
       return;
     }
-    
+
     console.error('TTS: Native speech error', e.error, e);
     if (onError) onError(e);
     // Even on error, we should probably call onEnd to reset UI state
-    if (onEnd) onEnd(); 
+    if (onEnd) onEnd();
   };
 
   // Small delay to ensure cancellation took effect and browser is ready
   // Increased to 100ms to fix race condition where cancel() isn't finished
   startTimeout = setTimeout(() => {
-      startTimeout = null;
-      if (!isCancelled) {
-        console.log('TTS: Executing speak()', { text: text.substring(0, 20) + '...' });
-        window.speechSynthesis.speak(utterance);
-      }
+    startTimeout = null;
+    if (!isCancelled) {
+      console.log('TTS: Executing speak()', { text: text.substring(0, 20) + '...' });
+      window.speechSynthesis.speak(utterance);
+    }
   }, 100);
 };

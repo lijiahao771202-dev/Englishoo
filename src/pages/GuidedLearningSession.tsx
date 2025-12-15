@@ -159,8 +159,30 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
         // Prefetch next 4 items
         const itemsToPrefetch = queue.slice(1, 5); // Next 4 items
-        itemsToPrefetch.forEach(item => {
+        itemsToPrefetch.forEach(async (item) => {
             prefetchRelatedWords(item.card.word);
+
+            // 预生成词根词缀（如果没有）
+            if (!item.card.roots) {
+                try {
+                    const roots = await generateRoots(item.card.word, apiKey);
+                    if (roots && roots.length > 0) {
+                        const updated = { ...item.card, roots };
+                        handleUpdateCard(updated);
+                    }
+                } catch (e) { /* 静默失败 */ }
+            }
+
+            // 预生成音节切分（如果没有）
+            if (!item.card.syllables) {
+                try {
+                    const syllables = await generateSyllables(item.card.word, apiKey);
+                    if (syllables) {
+                        const updated = { ...item.card, syllables };
+                        handleUpdateCard(updated);
+                    }
+                } catch (e) { /* 静默失败 */ }
+            }
         });
     }, [queue, apiKey, prefetchRelatedWords, currentItem]); // Trigger when queue changes or current item advances
 
