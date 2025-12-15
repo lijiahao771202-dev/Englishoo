@@ -1,14 +1,16 @@
 /**
  * @component FloatingAIChat (悬浮AI聊天助手)
- * @description 学习/复习时的AI助手悬浮窗，支持Tab快捷键呼出、拖拽移动、流式输出、Markdown渲染
- * @context 学习和复习页面
+ * @description 全局可用的AI助手悬浮窗，支持上下文感知模式切换、Tab快捷键呼出、拖拽移动、流式输出、Markdown渲染
+ * @context 全局可用，根据当前页面自动切换AI模式
  * @author Trae-Architect
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { MessageCircle, X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
+import { X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
 
 import { InteractiveMascot, type MascotReaction } from './InteractiveMascot';
+import { getAIModeFromView, getSystemPrompt, getQuickQuestions } from '@/lib/ai-prompts';
+import type { WordCard } from '@/types';
 
 // DeepSeek API URL (通过代理)
 const API_URL = '/api/deepseek/chat/completions';
@@ -19,6 +21,8 @@ interface Message {
 }
 
 interface FloatingAIChatProps {
+    /** 当前视图/页面 (用于上下文感知) */
+    currentView?: string;
     /** 当前学习的单词 (用于上下文) */
     currentWord?: string;
     /** 当前单词的释义 */
@@ -29,6 +33,14 @@ interface FloatingAIChatProps {
     mascotReaction?: MascotReaction;
     /** 插入笔记回调 */
     onInsertToNotes?: (text: string) => void;
+    /** 上下文数据 */
+    contextData?: {
+        cards?: WordCard[];
+        deckName?: string;
+        dueCount?: number;
+        newCount?: number;
+        totalCards?: number;
+    };
 }
 
 import ReactMarkdown from 'react-markdown';
@@ -122,7 +134,7 @@ function ChatBubble({ role, content, onInsertToNotes }: {
     );
 }
 
-export function FloatingAIChat({ currentWord, currentMeaning, apiKey, mascotReaction = 'idle', onInsertToNotes }: FloatingAIChatProps) {
+export function FloatingAIChat({ currentView = 'guided-learning', currentWord, currentMeaning, apiKey, mascotReaction = 'idle', onInsertToNotes, contextData }: FloatingAIChatProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -131,6 +143,28 @@ export function FloatingAIChat({ currentWord, currentMeaning, apiKey, mascotReac
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const dragControls = useDragControls();
+
+    // 上下文感知模式计算
+    const modeConfig = useMemo(() => getAIModeFromView(currentView), [currentView]);
+
+    // 动态快捷问题
+    const quickQuestions = useMemo(() => getQuickQuestions(modeConfig.mode, {
+        currentWord,
+        deckName: contextData?.deckName,
+        dueCount: contextData?.dueCount,
+        newCount: contextData?.newCount,
+    }), [modeConfig.mode, currentWord, contextData]);
+
+    // 动态 System Prompt
+    const systemPrompt = useMemo(() => getSystemPrompt(modeConfig.mode, {
+        currentWord,
+        currentMeaning,
+        cards: contextData?.cards,
+        deckName: contextData?.deckName,
+        dueCount: contextData?.dueCount,
+        newCount: contextData?.newCount,
+        totalCards: contextData?.totalCards,
+    }), [modeConfig.mode, currentWord, currentMeaning, contextData]);
 
     // 滚动到最新消息
     const scrollToBottom = () => {
@@ -185,32 +219,7 @@ export function FloatingAIChat({ currentWord, currentMeaning, apiKey, mascotReac
         setIsLoading(true);
         setStreamingContent('');
 
-        // 构建系统提示 (包含当前单词上下文)
-        const systemPrompt = `你是一个专业的英语学习助手，专门帮助中国学生学习英语词汇。
-${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${currentMeaning ? `，释义是: "${currentMeaning}"` : ''}。` : ''}
-
-## 回复格式要求：
-1. 使用 **Markdown 格式** 让内容结构清晰
-2. 用 **###** 作为小标题分隔不同内容块
-3. 用 **>** 引用块来高亮重要信息、口诀或例句
-4. **禁止使用表格**，改用列表格式展示对比内容
-5. 关键词用 **加粗** 突出
-6. 英文例句用引用块，中文翻译紧跟其后
-
-## 示例格式：
-### 词根分析
-**drunk** = drink 的过去分词
-
-### 例句
-> He was **drunk** last night.
-他昨晚喝醉了。
-
-### 对比
-- **drunk** - 醉的（形容词/过去分词）
-- **drank** - 喝（过去式）
-- **drink** - 喝（原形）
-
-请用简体中文回复，保持简洁专业。`;
+        // 使用动态计算的 systemPrompt (上下文感知模式)
 
         try {
             // 使用 fetch 进行流式请求
@@ -276,14 +285,7 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
         } finally {
             setIsLoading(false);
         }
-    }, [input, isLoading, messages, currentWord, currentMeaning, apiKey]);
-
-    // 快捷问题
-    const quickQuestions = useMemo(() => currentWord ? [
-        `"${currentWord}"还有哪些常见搭配？`,
-        `"${currentWord}"的词根是什么？`,
-        `"${currentWord}"和哪些词容易混淆？`,
-    ] : [], [currentWord]);
+    }, [input, isLoading, messages, systemPrompt, apiKey]);
 
     // [NEW] 悬停和戳一戳状态
     const [isHovered, setIsHovered] = useState(false);
@@ -399,21 +401,26 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
                        cursor-default"
                         style={{ maxHeight: 'calc(100vh - 150px)' }}
                     >
-                        {/* 头部 - 拖拽手柄 */}
+                        {/* 头部 - 拖拽手柄 + 模式指示器 */}
                         <div
                             className="px-4 py-3 border-b border-white/10 flex items-center gap-3 cursor-grab active:cursor-grabbing"
                             onPointerDown={(e) => dragControls.start(e)}
                         >
                             <GripVertical className="w-4 h-4 text-white/30" />
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 
-                              flex items-center justify-center">
-                                <MessageCircle className="w-4 h-4 text-white" />
+                              flex items-center justify-center text-lg">
+                                {modeConfig.emoji}
                             </div>
                             <div className="flex-1">
-                                <div className="text-white font-medium text-sm">AI 学习助手</div>
-                                {currentWord && (
-                                    <div className="text-white/50 text-xs">正在学习: {currentWord}</div>
-                                )}
+                                <div className="text-white font-medium text-sm flex items-center gap-2">
+                                    {modeConfig.label}
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/50 font-normal">
+                                        AI
+                                    </span>
+                                </div>
+                                <div className="text-white/40 text-xs">
+                                    {currentWord ? `正在学习: ${currentWord}` : modeConfig.description}
+                                </div>
                             </div>
                             <div className="text-white/30 text-xs">Tab 切换</div>
                         </div>

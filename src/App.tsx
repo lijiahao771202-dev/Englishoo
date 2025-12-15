@@ -28,6 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
 import { ReviewDashboard } from '@/pages/ReviewDashboard';
+import { FloatingAIChat } from '@/components/FloatingAIChat';
 
 // 🚀 React.lazy: 路由级代码分割 (Code Splitting for heavy page components)
 const KnowledgeGraph = lazy(() => import('@/pages/KnowledgeGraph'));
@@ -896,6 +897,18 @@ function AppContent() {
             </div>
 
             <GlobalSelectionMenu />
+
+            {/* 全局 AI 聊天助手 - 上下文感知模式 */}
+            <FloatingAIChat
+                currentView={view}
+                apiKey={apiKey}
+                contextData={{
+                    cards,
+                    dueCount: cards.filter(c => c.state !== 0 && !c.isFamiliar && c.due && new Date(c.due) < new Date()).length,
+                    newCount: newCards.length,
+                    totalCards: cards.length,
+                }}
+            />
 
             {/* Header Removed as per user request */}
 
