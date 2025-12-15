@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import type { WordCard } from '@/types';
 import { cn } from '@/lib/utils';
-import { Sparkles, BookOpen, BrainCircuit, Eye, Edit3, Save, RefreshCw, Volume2, Heart, CheckCircle, Keyboard, Link2, Sprout, RotateCcw, Network } from 'lucide-react';
+import { Sparkles, BookOpen, BrainCircuit, Eye, Edit3, Save, RefreshCw, Volume2, Heart, CheckCircle, Keyboard, Link2, Sprout, RotateCcw, Network, FileText } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { Rating } from 'ts-fsrs';
 import { speak } from '@/lib/tts';
 import { playClickSound, playSuccessSound } from '@/lib/sounds';
+import { NotesModal } from './NotesModal';
 
 interface FlashcardProps {
   card: WordCard;
@@ -119,14 +120,15 @@ export function Flashcard({
 
   // UI States
   const [showSplit, setShowSplit] = useState(false);
-  const [activeTab, setActiveTab] = useState<'meaning' | 'example' | 'mnemonic' | 'phrases' | 'derivatives' | 'roots'>('meaning');
+  const [showRootsTooltip, setShowRootsTooltip] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'meaning' | 'example' | 'mnemonic' | 'notes' | 'roots'>('meaning');
 
   // Tabs Order State
   const [tabs, setTabs] = useState([
     { id: 'example', label: '例句', icon: Eye },
     { id: 'mnemonic', label: '助记', icon: BrainCircuit },
-    { id: 'phrases', label: '搭配', icon: Link2 },
-    { id: 'derivatives', label: '派生', icon: Sprout },
+    { id: 'notes', label: '笔记', icon: FileText },
   ]);
 
   // Ghost Typing State
@@ -584,7 +586,42 @@ export function Flashcard({
           "flex flex-col items-center justify-center transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]",
           (isRevealed || alwaysShowContent) ? "min-h-[160px] pt-12 pb-8" : "h-full"
         )}>
-          <div className="relative group/word mb-4 max-w-full px-8 py-4 transition-all duration-500">
+          <div
+            className="relative group/word mb-4 max-w-full px-8 py-4 transition-all duration-500"
+            onMouseEnter={() => card.roots && card.roots.length > 0 && setShowRootsTooltip(true)}
+            onMouseLeave={() => setShowRootsTooltip(false)}
+          >
+            {/* 词根词缀悬浮提示 */}
+            <AnimatePresence>
+              {showRootsTooltip && card.roots && card.roots.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 
+                    bg-slate-900/95 backdrop-blur-xl border border-purple-500/30 rounded-xl 
+                    shadow-xl shadow-purple-500/10 p-3 min-w-[200px] max-w-[300px]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="text-[10px] uppercase tracking-wider text-purple-400/70 mb-2 font-bold">词根词缀</div>
+                  <div className="space-y-1.5">
+                    {card.roots.map((root, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-purple-300 bg-purple-500/20 px-1.5 py-0.5 rounded font-mono shrink-0">
+                          {root.root}
+                        </span>
+                        <span className="text-xs text-white/70">{root.meaning}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-white/30 mt-2 pt-2 border-t border-white/10">
+                    点击单词查看音节拆分
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <motion.div
               animate={isShaking ? { x: [-5, 5, -5, 5, 0] } : {}}
               transition={{ duration: 0.4 }}
@@ -601,10 +638,16 @@ export function Flashcard({
                     if (len > 7) return isLarge ? "text-5xl md:text-6xl" : "text-4xl md:text-5xl";
                     return isLarge ? "text-6xl md:text-7xl" : "text-5xl md:text-6xl";
                   })(),
-                  (isRevealed || alwaysShowContent) ? "bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent drop-shadow-lg" : "text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
+                  (isRevealed || alwaysShowContent) ? "bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent drop-shadow-lg" : "text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]",
+                  card.roots && card.roots.length > 0 && "hover:text-purple-200 cursor-help"
                 )}
                 onClick={async (e) => {
                   e.stopPropagation();
+                  // 点击时只切分音节显示，词根仅通过悬浮显示
+                  if (card.roots && card.roots.length > 0) {
+                    // 已有词根，切换显示 tooltip
+                    setShowRootsTooltip(!showRootsTooltip);
+                  }
                   if (!card.syllables && onGenerateSyllables && !isGeneratingSyllables) {
                     setIsGeneratingSyllables(true);
                     try { await onGenerateSyllables(card); } finally { setIsGeneratingSyllables(false); }
@@ -734,7 +777,15 @@ export function Flashcard({
                   {tabs.map(tab => (
                     <Reorder.Item key={tab.id} value={tab}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setActiveTab(tab.id as any); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // 笔记标签直接打开弹窗
+                          if (tab.id === 'notes') {
+                            setShowNotesModal(true);
+                          } else {
+                            setActiveTab(tab.id as any);
+                          }
+                        }}
                         className={cn(
                           "relative px-4 py-2 text-sm font-bold transition-all duration-300 rounded-full",
                           activeTab === tab.id
@@ -1077,15 +1128,29 @@ export function Flashcard({
                     </motion.div>
                   )}
 
-                  {/* Placeholder for other tabs */}
-                  {['phrases', 'derivatives'].includes(activeTab) && (
+                  {/* 笔记 Tab - 点击打开弹窗 */}
+                  {activeTab === 'notes' && (
                     <motion.div
-                      key={activeTab}
+                      key="notes"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="h-full flex items-center justify-center text-white/30"
+                      className="h-full flex flex-col items-center justify-center"
                     >
-                      内容开发中...
+                      <FileText className="w-12 h-12 text-white/20 mb-4" />
+                      <p className="text-white/40 text-sm mb-4">
+                        {noteContent ? '已有笔记，点击查看' : '暂无笔记'}
+                      </p>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowNotesModal(true);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-purple-500/30 text-purple-300 text-sm 
+                          flex items-center gap-2 hover:bg-purple-500/40 transition-colors border border-purple-500/30"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {noteContent ? '查看/编辑笔记' : '添加笔记'}
+                      </button>
                     </motion.div>
                   )}
 
@@ -1165,6 +1230,20 @@ export function Flashcard({
         </AnimatePresence>
 
       </div>
+
+      {/* 笔记弹窗 */}
+      <NotesModal
+        isOpen={showNotesModal}
+        onClose={() => setShowNotesModal(false)}
+        notes={noteContent}
+        word={card.word}
+        onSave={(newNotes) => {
+          setNoteContent(newNotes);
+          if (onUpdateCard) {
+            onUpdateCard({ ...card, notes: newNotes });
+          }
+        }}
+      />
     </motion.div>
   );
 }

@@ -4,11 +4,12 @@
  * 支持实时预览和恢复默认设置。
  */
 import { useState, useEffect } from 'react';
-import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2 } from 'lucide-react';
+import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2, Keyboard } from 'lucide-react';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { importCustomDeck } from '@/lib/import-custom';
 import type { EmbeddingConfig } from '@/lib/embedding';
 import { playClickSound, playSuccessSound, playFailSound, playKnowSound, playReviewAgainSound, playReviewHardSound, playReviewGoodSound, playReviewEasySound, playSessionCompleteSound } from '@/lib/sounds';
+import { HotkeySettings } from './HotkeySettings';
 
 export interface LiquidGlassSettings {
   opacity: number;
@@ -51,7 +52,7 @@ export function SettingsModal({
   apiKey,
   onApiKeyChange
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio'>('visual');
+  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio' | 'hotkey'>('visual');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, word: '' });
   const [bgUrlInput, setBgUrlInput] = useState('');
@@ -251,6 +252,12 @@ export function SettingsModal({
             className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'audio' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
             <Volume2 className="w-4 h-4" /> 音效
+          </button>
+          <button
+            onClick={() => setActiveTab('hotkey')}
+            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'hotkey' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+          >
+            <Keyboard className="w-4 h-4" /> 快捷键
           </button>
         </div>
 
@@ -713,6 +720,14 @@ export function SettingsModal({
                     </a>
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'hotkey' && (
+            <div className="space-y-6">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <HotkeySettings />
               </div>
             </div>
           )}

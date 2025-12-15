@@ -8,6 +8,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { MessageCircle, X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
 
+import { InteractiveMascot, type MascotReaction } from './InteractiveMascot';
+
 // DeepSeek API URL (通过代理)
 const API_URL = '/api/deepseek/chat/completions';
 
@@ -23,50 +25,104 @@ interface FloatingAIChatProps {
     currentMeaning?: string;
     /** API Key */
     apiKey: string;
+    /** 吉祥物情绪状态 */
+    mascotReaction?: MascotReaction;
+    /** 插入笔记回调 */
+    onInsertToNotes?: (text: string) => void;
 }
+
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /**
- * @description 简易 Markdown 渲染器 (支持加粗、斜体、代码)
+ * @component ChatBubble
+ * @description 卡片式聊天气泡组件 - 支持 Markdown 渲染 + 复制/插入笔记
  */
-function renderMarkdown(text: string): React.ReactNode {
-    // 处理 **bold** 和 *italic* 和 `code`
-    const parts: React.ReactNode[] = [];
-    let key = 0;
+function ChatBubble({ role, content, onInsertToNotes }: {
+    role: 'user' | 'assistant';
+    content: string;
+    onInsertToNotes?: (text: string) => void;
+}) {
+    const isUser = role === 'user';
+    const [copied, setCopied] = useState(false);
+    const [inserted, setInserted] = useState(false);
 
-    // 正则匹配 **bold**, *italic*, `code`
-    const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)/g;
-    let lastIndex = 0;
-    let match;
+    const handleCopy = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        await navigator.clipboard.writeText(content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
-    while ((match = regex.exec(text)) !== null) {
-        // 添加匹配前的普通文本
-        if (match.index > lastIndex) {
-            parts.push(<span key={key++}>{text.slice(lastIndex, match.index)}</span>);
-        }
+    const handleInsertToNotes = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onInsertToNotes?.(content);
+        setInserted(true);
+        setTimeout(() => setInserted(false), 2000);
+    };
 
-        if (match[1]) {
-            // **bold**
-            parts.push(<strong key={key++} className="font-bold text-purple-300">{match[2]}</strong>);
-        } else if (match[3]) {
-            // *italic*
-            parts.push(<em key={key++} className="italic text-blue-300">{match[4]}</em>);
-        } else if (match[5]) {
-            // `code`
-            parts.push(<code key={key++} className="bg-white/10 px-1 rounded text-yellow-300 font-mono text-xs">{match[6]}</code>);
-        }
+    return (
+        <div className={`flex gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+            {/* 助手头像 */}
+            {!isUser && (
+                <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 
+                    flex items-center justify-center text-white text-xs shadow-md mt-1">
+                    🤖
+                </div>
+            )}
 
-        lastIndex = regex.lastIndex;
-    }
+            {/* 消息卡片 */}
+            <div
+                className={`max-w-[80%] rounded-2xl shadow-md overflow-hidden group relative
+                    ${isUser
+                        ? 'bg-gradient-to-br from-purple-600/80 to-purple-500/70 text-white rounded-br-sm'
+                        : 'bg-white/10 backdrop-blur-sm border border-white/10 text-white/95 rounded-bl-sm'
+                    }`}
+            >
+                <div className="px-3.5 py-2.5 text-sm">
+                    {isUser ? (
+                        <span>{content}</span>
+                    ) : (
+                        <div className="prose prose-invert prose-sm max-w-none
+                            prose-p:my-1.5 prose-p:leading-relaxed
+                            prose-headings:text-purple-300 prose-headings:font-bold prose-headings:mt-3 prose-headings:mb-1.5
+                            prose-strong:text-purple-300
+                            prose-code:bg-black/30 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-yellow-300 prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                            prose-pre:bg-black/40 prose-pre:rounded-lg prose-pre:p-3 prose-pre:my-2 prose-pre:border prose-pre:border-white/10
+                            prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
+                            prose-blockquote:border-l-purple-400 prose-blockquote:bg-purple-500/10 prose-blockquote:rounded-r-lg prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:my-2 prose-blockquote:not-italic
+                            prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline"
+                        >
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                        </div>
+                    )}
+                </div>
 
-    // 添加剩余文本
-    if (lastIndex < text.length) {
-        parts.push(<span key={key++}>{text.slice(lastIndex)}</span>);
-    }
-
-    return parts.length > 0 ? parts : text;
+                {/* 操作按钮 - 仅助手消息显示 */}
+                {!isUser && (
+                    <div className="flex gap-1 px-3 pb-2 pt-0">
+                        <button
+                            onClick={handleCopy}
+                            className="text-[10px] px-2 py-1 rounded-md bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80 transition-colors flex items-center gap-1"
+                        >
+                            {copied ? '✅ 已复制' : '📋 复制'}
+                        </button>
+                        {onInsertToNotes && (
+                            <button
+                                onClick={handleInsertToNotes}
+                                className="text-[10px] px-2 py-1 rounded-md bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors flex items-center gap-1"
+                            >
+                                {inserted ? '✅ 已插入' : '📝 插入笔记'}
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 
-export function FloatingAIChat({ currentWord, currentMeaning, apiKey }: FloatingAIChatProps) {
+export function FloatingAIChat({ currentWord, currentMeaning, apiKey, mascotReaction = 'idle', onInsertToNotes }: FloatingAIChatProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -92,11 +148,20 @@ export function FloatingAIChat({ currentWord, currentMeaning, apiKey }: Floating
         }
     }, [isOpen]);
 
-    // Tab 快捷键切换
+    // 自定义快捷键切换 (默认 Tab，可通过 localStorage 配置)
     useEffect(() => {
+        const savedHotkey = localStorage.getItem('ai_chat_hotkey') || 'Tab';
+
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Tab 键且没有在输入框中
-            if (e.key === 'Tab' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+            // 检查是否按下了配置的快捷键
+            const isHotkeyPressed = e.key === savedHotkey ||
+                (savedHotkey === 'Ctrl+/' && e.ctrlKey && e.key === '/') ||
+                (savedHotkey === 'Cmd+/' && e.metaKey && e.key === '/') ||
+                (savedHotkey === 'Ctrl+K' && e.ctrlKey && e.key === 'k') ||
+                (savedHotkey === 'Cmd+K' && e.metaKey && e.key === 'k');
+
+            // 不在输入框中时才响应
+            if (isHotkeyPressed && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
                 e.preventDefault();
                 setIsOpen(prev => !prev);
             }
@@ -111,10 +176,10 @@ export function FloatingAIChat({ currentWord, currentMeaning, apiKey }: Floating
     }, [isOpen]);
 
     // 发送消息 (流式输出)
-    const sendMessage = useCallback(async () => {
-        if (!input.trim() || isLoading) return;
+    const sendMessage = useCallback(async (directMessage?: string) => {
+        const userMessage = (directMessage || input).trim();
+        if (!userMessage || isLoading) return;
 
-        const userMessage = input.trim();
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
         setIsLoading(true);
@@ -124,14 +189,28 @@ export function FloatingAIChat({ currentWord, currentMeaning, apiKey }: Floating
         const systemPrompt = `你是一个专业的英语学习助手，专门帮助中国学生学习英语词汇。
 ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${currentMeaning ? `，释义是: "${currentMeaning}"` : ''}。` : ''}
 
-请用简体中文回复用户的问题。回答要简洁、专业、有帮助。
-重要：请勿使用 Markdown 格式（如 **加粗** 或 *斜体*），直接用纯文本回复。
-如果用户问的问题与当前单词相关，可以提供：
-- 更多例句和用法
-- 词根词缀分析
-- 近义词/反义词对比
-- 常见搭配
-- 语法要点`;
+## 回复格式要求：
+1. 使用 **Markdown 格式** 让内容结构清晰
+2. 用 **###** 作为小标题分隔不同内容块
+3. 用 **>** 引用块来高亮重要信息、口诀或例句
+4. **禁止使用表格**，改用列表格式展示对比内容
+5. 关键词用 **加粗** 突出
+6. 英文例句用引用块，中文翻译紧跟其后
+
+## 示例格式：
+### 词根分析
+**drunk** = drink 的过去分词
+
+### 例句
+> He was **drunk** last night.
+他昨晚喝醉了。
+
+### 对比
+- **drunk** - 醉的（形容词/过去分词）
+- **drank** - 喝（过去式）
+- **drink** - 喝（原形）
+
+请用简体中文回复，保持简洁专业。`;
 
         try {
             // 使用 fetch 进行流式请求
@@ -206,38 +285,95 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
         `"${currentWord}"和哪些词容易混淆？`,
     ] : [], [currentWord]);
 
+    // [NEW] 悬停和戳一戳状态
+    const [isHovered, setIsHovered] = useState(false);
+    const [localReaction, setLocalReaction] = useState(mascotReaction);
+    const lastActivityRef = useRef(Date.now());
+
+    // 同步外部 reaction
+    useEffect(() => {
+        if (mascotReaction !== 'idle') {
+            setLocalReaction(mascotReaction);
+            lastActivityRef.current = Date.now();
+        }
+    }, [mascotReaction]);
+
+    // 30s 无操作 → 打瞌睡
+    useEffect(() => {
+        const checkIdle = setInterval(() => {
+            if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle') {
+                setLocalReaction('sleepy');
+            }
+        }, 5000);
+        return () => clearInterval(checkIdle);
+    }, [localReaction]);
+
+    // 处理戳一戳
+    const handlePoke = () => {
+        if (isOpen) return; // 如果已打开聊天，不触发戳一戳
+        lastActivityRef.current = Date.now();
+        setLocalReaction('poked');
+        setTimeout(() => setLocalReaction('idle'), 1000);
+    };
+
+    // 悬停 → 害羞
+    const handleMouseEnter = () => {
+        setIsHovered(true);
+        lastActivityRef.current = Date.now();
+        if (localReaction === 'idle' || localReaction === 'sleepy') {
+            setLocalReaction('shy');
+        }
+    };
+
+    const handleMouseLeave = () => {
+        setIsHovered(false);
+        if (localReaction === 'shy') {
+            setLocalReaction('idle');
+        }
+    };
+
     return (
         <>
-            {/* 悬浮按钮 */}
+            {/* 悬浮按钮 - 使用自定义 InteractiveMascot */}
             <motion.button
-                className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full 
-                   bg-gradient-to-br from-purple-500/80 to-blue-500/80
-                   backdrop-blur-xl border border-white/20
-                   shadow-lg shadow-purple-500/25
+                className="fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full 
                    flex items-center justify-center
-                   hover:scale-110 active:scale-95 transition-transform"
-                whileHover={{ boxShadow: '0 0 30px rgba(168, 85, 247, 0.5)' }}
-                onClick={() => setIsOpen(!isOpen)}
+                   hover:scale-105 active:scale-95 transition-transform cursor-pointer overflow-visible"
+                onClick={() => {
+                    if (!isOpen) {
+                        handlePoke(); // 戳一戳效果
+                        setTimeout(() => setIsOpen(true), 300); // 延迟打开
+                    } else {
+                        setIsOpen(false);
+                    }
+                }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
                 title="AI 助手 (Tab)"
             >
                 <AnimatePresence mode="wait">
                     {isOpen ? (
                         <motion.div
                             key="close"
-                            initial={{ rotate: -90, opacity: 0 }}
-                            animate={{ rotate: 0, opacity: 1 }}
-                            exit={{ rotate: 90, opacity: 0 }}
+                            initial={{ scale: 0, rotate: -90 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            exit={{ scale: 0, rotate: 90 }}
+                            className="bg-black/50 backdrop-blur-md rounded-full p-4 border border-white/20 shadow-lg"
                         >
-                            <X className="w-6 h-6 text-white" />
+                            <X className="w-8 h-8 text-white" />
                         </motion.div>
                     ) : (
                         <motion.div
-                            key="chat"
-                            initial={{ rotate: 90, opacity: 0 }}
-                            animate={{ rotate: 0, opacity: 1 }}
-                            exit={{ rotate: -90, opacity: 0 }}
+                            key="mascot"
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
                         >
-                            <Sparkles className="w-6 h-6 text-white" />
+                            <InteractiveMascot
+                                reaction={localReaction}
+                                size={96}
+                                isHovered={isHovered}
+                            />
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -288,16 +424,13 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
                                 <div className="text-center py-8">
                                     <Sparkles className="w-10 h-10 text-purple-400/50 mx-auto mb-3" />
                                     <p className="text-white/50 text-sm">有什么问题尽管问我！</p>
-                                    {/* 快捷问题 */}
+                                    {/* 快捷问题 - 直接发送 */}
                                     {quickQuestions.length > 0 && (
                                         <div className="mt-4 space-y-2">
                                             {quickQuestions.map((q, i) => (
                                                 <button
                                                     key={i}
-                                                    onClick={() => {
-                                                        setInput(q);
-                                                        inputRef.current?.focus();
-                                                    }}
+                                                    onClick={() => sendMessage(q)}
                                                     className="block w-full text-left text-xs text-purple-300/70 
                                      hover:text-purple-300 px-3 py-2 rounded-lg
                                      bg-white/5 hover:bg-white/10 transition-colors"
@@ -311,28 +444,56 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
                             ) : (
                                 <>
                                     {messages.map((msg, i) => (
-                                        <div
-                                            key={i}
-                                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                                        >
-                                            <div
-                                                className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap
-                                                    ${msg.role === 'user'
-                                                        ? 'bg-purple-500/30 text-white rounded-br-sm'
-                                                        : 'bg-white/10 text-white/90 rounded-bl-sm'
-                                                    }`}
-                                            >
-                                                {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
-                                            </div>
-                                        </div>
+                                        <ChatBubble key={i} role={msg.role} content={msg.content} onInsertToNotes={onInsertToNotes} />
                                     ))}
                                     {/* 流式输出中的消息 */}
                                     {streamingContent && (
-                                        <div className="flex justify-start">
-                                            <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-bl-sm text-sm whitespace-pre-wrap bg-white/10 text-white/90">
-                                                {renderMarkdown(streamingContent)}
-                                                <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-0.5" />
+                                        <div className="flex gap-2 flex-row">
+                                            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 
+                                                flex items-center justify-center text-white text-xs shadow-md mt-1">
+                                                🤖
                                             </div>
+                                            <div className="max-w-[80%] rounded-2xl shadow-md overflow-hidden bg-white/10 backdrop-blur-sm border border-white/10 text-white/95 rounded-bl-sm">
+                                                <div className="px-3.5 py-2.5 text-sm prose prose-invert prose-sm max-w-none">
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+                                                    <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-0.5 align-middle" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 快捷追问/问题按钮 - 始终显示当前单词相关问题 */}
+                                    {!isLoading && !streamingContent && currentWord && (
+                                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/10">
+                                            <span className="w-full text-xs text-white/30 mb-1">关于 "{currentWord}"：</span>
+                                            <button
+                                                onClick={() => sendMessage(`详细解释一下"${currentWord}"`)}
+                                                className="text-xs px-3 py-1.5 rounded-full bg-purple-500/20 text-purple-300 
+                                                    hover:bg-purple-500/30 border border-purple-500/30 transition-colors"
+                                            >
+                                                📖 详细解释
+                                            </button>
+                                            <button
+                                                onClick={() => sendMessage(`再给我几个"${currentWord}"的例句`)}
+                                                className="text-xs px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-300 
+                                                    hover:bg-blue-500/30 border border-blue-500/30 transition-colors"
+                                            >
+                                                ✏️ 更多例句
+                                            </button>
+                                            <button
+                                                onClick={() => sendMessage(`"${currentWord}"的同义词有哪些？`)}
+                                                className="text-xs px-3 py-1.5 rounded-full bg-green-500/20 text-green-300 
+                                                    hover:bg-green-500/30 border border-green-500/30 transition-colors"
+                                            >
+                                                🔗 同义词
+                                            </button>
+                                            <button
+                                                onClick={() => sendMessage(`帮我想一个"${currentWord}"的助记方法`)}
+                                                className="text-xs px-3 py-1.5 rounded-full bg-yellow-500/20 text-yellow-300 
+                                                    hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors"
+                                            >
+                                                💡 助记
+                                            </button>
                                         </div>
                                     )}
                                 </>
@@ -363,7 +524,7 @@ ${currentWord ? `当前用户正在学习的单词是: "${currentWord}"${current
                              transition-colors"
                                 />
                                 <button
-                                    onClick={sendMessage}
+                                    onClick={() => sendMessage()}
                                     disabled={!input.trim() || isLoading}
                                     className="w-10 h-10 rounded-xl bg-purple-500/50 hover:bg-purple-500/70
                              disabled:opacity-50 disabled:cursor-not-allowed

@@ -439,12 +439,12 @@ export async function getDueCards(deckId?: string) {
  */
 export async function addReviewLog(log: ReviewLog & { cardId: string }) {
     const db = await getDB();
-    // Manual ID generation to ensure keyPath 'id' is satisfied even if autoIncrement is missing in legacy DBs
+    // 使用时间戳 + 随机数避免极端情况下的键冲突
     const logWithId = {
         ...log,
-        id: Date.now() // Use timestamp as ID
+        id: Date.now() + Math.random() * 1000
     };
-    return db.add('logs', logWithId);
+    return db.put('logs', logWithId);
 }
 
 /**

@@ -18,6 +18,7 @@ import { Rating, State } from 'ts-fsrs';
 import { ReviewControls } from '@/components/ReviewControls';
 import { getReviewPreviews } from '@/lib/fsrs';
 import { FloatingAIChat } from '@/components/FloatingAIChat';
+import type { MascotReaction } from '@/components/InteractiveMascot';
 
 /**
  * @description 引导式学习会话页面 (Guided Learning Session)
@@ -104,11 +105,16 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [isHoveringCard, setIsHoveringCard] = useState(false); // [NEW] Track if hovering card to prevent graph interaction
     const [isCardFlipped, setIsCardFlipped] = useState(false); // [NEW] Track card flip state for controls
     const [justLearnedNodeId, setJustLearnedNodeId] = useState<string | null>(null);
+    const [animationTime, setAnimationTime] = useState(0); // [FIX] For smooth canvas animations
     // Highlighted Neighbor State (Cross-Highlighting)
     const [highlightedNeighborId, setHighlightedNeighborId] = useState<string | null>(null);
     const [isGraphGenerating, setIsGraphGenerating] = useState(false);
     const [generatingLinks, setGeneratingLinks] = useState<Set<string>>(new Set());
     const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | undefined>(undefined);
+    // [NEW] Mascot Reaction State
+    const [mascotReaction, setMascotReaction] = useState<MascotReaction>('idle');
+    const [comboCount, setComboCount] = useState(0); // 连击计数
+    const lastActivityRef = useRef<number>(Date.now()); // 最后活动时间
 
     // [NEW] AI Graph Cache (L1 - Memory)
     const aiCacheRef = useRef<Map<string, any>>(new Map());
@@ -162,6 +168,25 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     useEffect(() => {
         setIsCardFlipped(false);
     }, [currentItem]);
+
+    // [FIX] Animation loop for smooth ripple/pulse effects at ~30fps
+    useEffect(() => {
+        let rafId: number;
+        let lastUpdate = 0;
+        const targetFps = 30; // 30fps for smooth but efficient animation
+        const frameInterval = 1000 / targetFps;
+
+        const animate = (timestamp: number) => {
+            if (timestamp - lastUpdate >= frameInterval) {
+                setAnimationTime(timestamp);
+                lastUpdate = timestamp;
+            }
+            rafId = requestAnimationFrame(animate);
+        };
+
+        rafId = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(rafId);
+    }, []);
 
 
     // [NEW] Real-time Example Generation Effect
@@ -1316,17 +1341,30 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     // 1. Learn -> Choice
     const handleKnow = useCallback(() => {
         playKnowSound();
+        lastActivityRef.current = Date.now(); // 更新活动时间
+
+        // [NEW] 连击检测
+        const newCombo = comboCount + 1;
+        setComboCount(newCombo);
+
+        if (newCombo >= 3) {
+            // 连击 3 次及以上 → 疯狂庆祝
+            setMascotReaction('combo');
+            setTimeout(() => {
+                setMascotReaction('idle');
+                setComboCount(0); // 重置连击
+            }, 2500);
+        } else {
+            // 普通开心
+            setMascotReaction('happy');
+            setTimeout(() => setMascotReaction('idle'), 2000);
+        }
 
         // Trigger "Light Up" animation
         if (currentItem) {
             setJustLearnedNodeId(currentItem.nodeId);
-            setTimeout(() => setJustLearnedNodeId(null), 1000); // [MODIFIED] Reduced from 2000ms to 1000ms to avoid distraction
+            setTimeout(() => setJustLearnedNodeId(null), 1000);
         }
-
-        // Note: We don't mark as completed here yet, only after passing the test/choice
-        // But if "Known" means skipped, maybe we should?
-        // User flow: Learn -> Choice -> Test -> Done.
-        // So we only mark complete at the end of the chain (Spelling).
 
         setQueue(prev => {
             const [current, ...rest] = prev;
@@ -1336,14 +1374,21 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             newQueue.splice(insertIndex, 0, newItem);
             return newQueue;
         });
-    }, []);
+    }, [comboCount, currentItem]);
 
-    // 2. Learn -> Learn (Loop)
+    // 2. Learn -> Learn (Loop / 不认识)
     const handleLoop = () => {
         playFailSound();
+        lastActivityRef.current = Date.now();
+
+        // [NEW] 答错 → 伤心
+        setMascotReaction('sad');
+        setComboCount(0); // 重置连击
+        setTimeout(() => setMascotReaction('idle'), 2000);
+
         setQueue(prev => {
             const [first, ...rest] = prev;
-            return [...rest, first]; // Keep type as 'learn'
+            return [...rest, first];
         });
     };
 
@@ -2059,6 +2104,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         if (rating !== Rating.Again) {
             setCompletedNodeIds(prev => new Set(prev).add(currentItem.nodeId));
             setSessionStats(prev => ({ ...prev, correct: prev.correct + 1 }));
+
+            // [NEW] Mascot Happy Reaction
+            setMascotReaction('happy');
+            setTimeout(() => setMascotReaction('idle'), 2000);
         }
 
         // Update total
@@ -2505,6 +2554,11 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 backgroundRepeat: 'no-repeat'
             } : {}}
         >
+            {/* 高斯模糊背景层 - 学习/复习时激活 */}
+            {(phase === 'word-learning' || phase === 'connection-learning') && (
+                <div className="absolute inset-0 backdrop-blur-md bg-black/30 z-0 transition-all duration-500" />
+            )}
+
             {/* Header - Glass Style */}
             <header className="h-16 border-b border-white/10 flex items-center px-6 bg-white/5 backdrop-blur-xl z-10">
                 <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-4">
@@ -2559,37 +2613,48 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             {/* Content */}
             <div className="flex-1 relative overflow-hidden">
 
-                {/* Legend (Top Right) */}
-                <div className="absolute right-6 top-6 z-20 bg-slate-900/60 backdrop-blur-md border border-white/10 rounded-xl p-4 text-xs pointer-events-none select-none">
-                    <h3 className="text-white/40 font-bold mb-3 uppercase tracking-wider text-[10px]">关系图例 Legend</h3>
-                    <div className="space-y-2.5">
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#4ade80] shadow-[0_0_8px_rgba(74,222,128,0.6)]"></span>
-                            <span className="text-white/80">近义 (Synonym)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#f87171] shadow-[0_0_8px_rgba(248,113,113,0.6)]"></span>
-                            <span className="text-white/80">反义 (Antonym)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#a78bfa] shadow-[0_0_8px_rgba(167,139,250,0.6)]"></span>
-                            <span className="text-white/80">派生 (Derivative)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#facc15] shadow-[0_0_8px_rgba(250,204,21,0.6)]"></span>
-                            <span className="text-white/80">形似 (Look-alike)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#60a5fa] shadow-[0_0_8px_rgba(96,165,250,0.6)]"></span>
-                            <span className="text-white/80">搭配 (Collocation)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#22d3ee] shadow-[0_0_8px_rgba(34,211,238,0.6)]"></span>
-                            <span className="text-white/80">场景 (Scenario)</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2 h-2 rounded-full bg-[#94a3b8] shadow-[0_0_8px_rgba(148,163,184,0.6)]"></span>
-                            <span className="text-white/80">关联 (Related)</span>
+                {/* Legend (Top Right) - 默认隐藏，悬浮显示 */}
+                <div className="absolute right-6 top-6 z-20 group">
+                    {/* 悬浮触发器 */}
+                    <div className="bg-slate-900/40 backdrop-blur-md border border-white/10 rounded-lg px-3 py-2 text-xs text-white/50 cursor-pointer
+                        group-hover:opacity-0 group-hover:scale-95 transition-all duration-300">
+                        图例 ℹ️
+                    </div>
+                    {/* 完整图例 */}
+                    <div className="absolute right-0 top-0 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-xl p-4 text-xs
+                        opacity-0 scale-95 pointer-events-none select-none
+                        group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto
+                        transition-all duration-300 origin-top-right">
+                        <h3 className="text-white/40 font-bold mb-3 uppercase tracking-wider text-[10px]">关系图例 Legend</h3>
+                        <div className="space-y-2.5">
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#4ade80] shadow-[0_0_8px_rgba(74,222,128,0.6)]"></span>
+                                <span className="text-white/80">近义 (Synonym)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#f87171] shadow-[0_0_8px_rgba(248,113,113,0.6)]"></span>
+                                <span className="text-white/80">反义 (Antonym)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#a78bfa] shadow-[0_0_8px_rgba(167,139,250,0.6)]"></span>
+                                <span className="text-white/80">派生 (Derivative)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#facc15] shadow-[0_0_8px_rgba(250,204,21,0.6)]"></span>
+                                <span className="text-white/80">形似 (Look-alike)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#60a5fa] shadow-[0_0_8px_rgba(96,165,250,0.6)]"></span>
+                                <span className="text-white/80">搭配 (Collocation)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#22d3ee] shadow-[0_0_8px_rgba(34,211,238,0.6)]"></span>
+                                <span className="text-white/80">场景 (Scenario)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <span className="w-2 h-2 rounded-full bg-[#94a3b8] shadow-[0_0_8px_rgba(148,163,184,0.6)]"></span>
+                                <span className="text-white/80">关联 (Related)</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2785,6 +2850,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             width={dimensions.width} // Use container width directly (ResizeObserver handles the 50% logic)
                             height={dimensions.height}
                             warmupTicks={50}
+                            cooldownTicks={100}
+                            d3AlphaDecay={0.02}
+                            d3VelocityDecay={0.3}
+                            enableNodeDrag={true}
 
                             linkDirectionalParticleWidth={4}
                             linkDirectionalParticleColor={() => '#e0f2fe'} // [MODIFIED] Light Blue/White particles
@@ -2946,11 +3015,30 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     </div>
                 )}
 
-                {/* AI 学习助手悬浮窗 */}
+                {/* 悬浮 AI 聊天助手 */}
                 <FloatingAIChat
+                    apiKey={apiKey}
                     currentWord={currentItem?.card?.word}
                     currentMeaning={currentItem?.card?.meaning}
-                    apiKey={apiKey}
+                    mascotReaction={mascotReaction}
+                    onInsertToNotes={(text) => {
+                        if (currentItem?.card && onUpdateCard) {
+                            const newNotes = currentItem.card.notes
+                                ? `${currentItem.card.notes}\n\n---\n${text}`
+                                : text;
+                            const updatedCard = { ...currentItem.card, notes: newNotes };
+
+                            // 实时更新本地队列状态
+                            setQueue(prev => prev.map(item =>
+                                item.card.id === currentItem.card.id
+                                    ? { ...item, card: updatedCard }
+                                    : item
+                            ));
+
+                            // 持久化到数据库
+                            onUpdateCard(updatedCard);
+                        }
+                    }}
                 />
             </div>
         </div>
