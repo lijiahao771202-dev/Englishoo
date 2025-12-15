@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { playFailSound, playPassSound, playSpellingSuccessSound } from '@/lib/sounds';
 import { speak } from '@/lib/tts';
 import { EmbeddingService } from '@/lib/embedding';
+import { mascotEventBus } from '@/lib/mascot-event-bus';
+import { getMascotDialogue } from '@/lib/mascot-dialogues';
 
 interface LearningSessionProps {
   cards: WordCard[];
@@ -62,8 +64,9 @@ export function LearningSession({
 
   // Session Report State
   const [showReport, setShowReport] = useState(false);
-  const startTime = useRef(Date.now());
-  const initialCardCount = useRef(cards.length);
+  // Use state instead of ref to avoid "access ref during render" lint
+  const [startTime] = useState(() => Date.now());
+  const [initialCardCount] = useState(cards.length);
 
   // Spelling Test State
   const [inputValue, setInputValue] = useState('');
@@ -75,9 +78,50 @@ export function LearningSession({
   const [choiceResult, setChoiceResult] = useState<'correct' | 'incorrect' | null>(null);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
 
+  // [NEW] Context Tracking
+  const cardLoadedTimeRef = useRef<number>(Date.now());
+
   const currentItem = queue[0];
   const currentCard = currentItem?.card;
   const mode = currentItem?.type || 'learn';
+
+  // [NEW] Combo Counter
+  const [comboCount, setComboCount] = useState(0);
+
+  // Helper to handle combo
+  const handleCombo = useCallback(() => {
+    setComboCount(prev => {
+      const newCombo = prev + 1;
+      if (newCombo >= 3) {
+        mascotEventBus.emit({
+          type: 'COMBO',
+          text: `${newCombo}连胜!`,
+          reaction: 'combo',
+          duration: 2000
+        });
+      } else {
+        mascotEventBus.react('happy');
+      }
+      return newCombo;
+    });
+  }, []);
+
+  const handleMistake = useCallback(() => {
+    setComboCount(0);
+    mascotEventBus.react('sad');
+  }, []);
+
+  // Effect: New Card - Mascot Greeting
+  useEffect(() => {
+    if (mode === 'learn' && currentCard) {
+      cardLoadedTimeRef.current = Date.now(); // Reset timer
+      // Delay slightly to look natural
+      const timer = setTimeout(() => {
+        mascotEventBus.say(getMascotDialogue('greeting'), "happy");
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentCard, mode]);
 
   // Check completion
   useEffect(() => {
@@ -126,7 +170,7 @@ export function LearningSession({
       // Auto-play audio
       speak(currentCard.word);
     }
-  }, [mode, currentCard, generateOptions]);
+  }, [mode, currentCard, generateOptions]); // Added currentCard.word implicit in currentCard dependency
 
   // Auto-focus input in test mode
   useEffect(() => {
@@ -167,7 +211,15 @@ export function LearningSession({
 
       return newQueue;
     });
-  }, []);
+
+    // Mascot Feedback
+    const speed = Date.now() - cardLoadedTimeRef.current < 2000 ? 'fast' : 'slow';
+    mascotEventBus.say(
+      getMascotDialogue('correct', { streak: comboCount, speed }),
+      comboCount >= 2 ? 'combo' : (speed === 'fast' ? 'surprised' : 'happy')
+    );
+    handleCombo();
+  }, [comboCount, handleCombo]);
 
   // User clicks "Don't Know" (X) in Learn Mode
   const handleLoop = () => {
@@ -177,10 +229,16 @@ export function LearningSession({
       const [first, ...rest] = prev;
       return [...rest, first]; // Keep type as 'learn'
     });
+    // Mascot Feedback
+    mascotEventBus.say(
+      getMascotDialogue('incorrect'),
+      'sad'
+    );
+    handleMistake();
   };
 
   // Handle Choice Selection
-  const handleChoiceSelect = (selectedCard: WordCard) => {
+  const handleChoiceSelect = useCallback((selectedCard: WordCard) => {
     if (choiceResult) return; // Prevent multiple clicks
 
     setSelectedChoiceId(selectedCard.id);
@@ -190,6 +248,12 @@ export function LearningSession({
     if (selectedCard.id === currentCard.id) {
       setChoiceResult('correct');
       playPassSound();
+
+      mascotEventBus.say(
+        getMascotDialogue('correct', { streak: comboCount }),
+        comboCount >= 2 ? 'combo' : 'happy'
+      );
+      handleCombo();
 
       // Proceed to Spelling Test after a short delay
       setTimeout(() => {
@@ -208,6 +272,11 @@ export function LearningSession({
     } else {
       setChoiceResult('incorrect');
       playFailSound();
+      mascotEventBus.say(
+        getMascotDialogue('incorrect'),
+        'thinking'
+      );
+      handleMistake();
 
       // Loop back to Learn
       setTimeout(() => {
@@ -224,7 +293,7 @@ export function LearningSession({
         });
       }, 1500);
     }
-  };
+  }, [choiceResult, currentCard, comboCount, handleCombo, handleMistake]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -258,7 +327,7 @@ export function LearningSession({
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [mode, handleKnow, choiceOptions, choiceResult]);
+  }, [mode, handleKnow, choiceOptions, choiceResult, handleChoiceSelect]);
 
   const handleCheckSpelling = async () => {
     if (!inputValue.trim() || !currentCard) return;
@@ -268,6 +337,13 @@ export function LearningSession({
     if (isCorrect) {
       setTestResult('correct');
       playSpellingSuccessSound();
+
+      // Mascot Celebration
+      mascotEventBus.say(
+        getMascotDialogue(comboCount >= 3 ? 'streak' : 'correct', { streak: comboCount }),
+        comboCount >= 3 ? 'combo' : 'happy'
+      );
+      handleCombo();
 
       // [FIX] Save IMMEDIATELY to prevent data loss if user exits during animation
       // Trigger background knowledge graph update
@@ -289,6 +365,11 @@ export function LearningSession({
     } else {
       setTestResult('incorrect');
       playFailSound();
+      mascotEventBus.say(
+        getMascotDialogue('incorrect'),
+        'determined' // Encourage them to try again (next loop)
+      );
+      handleMistake();
 
       // Show correct answer then loop back
       setTimeout(() => {
@@ -326,8 +407,8 @@ export function LearningSession({
         <SessionReport
           isOpen={showReport}
           type="learn"
-          startTime={startTime.current}
-          cardsCount={initialCardCount.current}
+          startTime={startTime}
+          cardsCount={initialCardCount}
           onClose={onComplete}
         />
       );

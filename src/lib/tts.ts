@@ -95,10 +95,12 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
   // Helper to wrap callbacks with cancellation check
   const safeStart = () => {
     if (!isCancelled && onStart) onStart();
+    if (!isCancelled) window.dispatchEvent(new CustomEvent('tts-state-change', { detail: { isPlaying: true } }));
   };
   const safeEnd = () => {
     if (!isCancelled && onEnd) onEnd();
     // We don't reset isCancelled here to allow debounce/overlap protection
+    window.dispatchEvent(new CustomEvent('tts-state-change', { detail: { isPlaying: false } }));
   };
 
   // Strategy 1: Online Audio (Best for words/short phrases)

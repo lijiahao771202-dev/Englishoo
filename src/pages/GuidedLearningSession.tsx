@@ -18,7 +18,10 @@ import { Rating, State } from 'ts-fsrs';
 import { ReviewControls } from '@/components/ReviewControls';
 import { getReviewPreviews } from '@/lib/fsrs';
 import { FloatingAIChat } from '@/components/FloatingAIChat';
-import type { MascotReaction } from '@/components/InteractiveMascot';
+import { InteractiveMascot, type MascotReaction } from '@/components/InteractiveMascot';
+import { loadMascotConfig } from '@/lib/mascot-config';
+import { mascotEventBus } from '@/lib/mascot-event-bus';
+import { getMascotDialogue } from '@/lib/mascot-dialogues';
 
 /**
  * @description 引导式学习会话页面 (Guided Learning Session)
@@ -111,10 +114,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [isGraphGenerating, setIsGraphGenerating] = useState(false);
     const [generatingLinks, setGeneratingLinks] = useState<Set<string>>(new Set());
     const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | undefined>(undefined);
-    // [NEW] Mascot Reaction State
     const [mascotReaction, setMascotReaction] = useState<MascotReaction>('idle');
     const [comboCount, setComboCount] = useState(0); // 连击计数
     const lastActivityRef = useRef<number>(Date.now()); // 最后活动时间
+    // [NEW] Context Tracking
+    const cardLoadedTimeRef = useRef<number>(Date.now());
+    // [Feature I] 老师模式状态
+    const [isTeacherMode, setIsTeacherMode] = useState(false);
 
     // [NEW] AI Graph Cache (L1 - Memory)
     const aiCacheRef = useRef<Map<string, any>>(new Map());
@@ -900,6 +906,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     }
                 }
 
+                // [Feature I] 老师模式主动讲解
+                // This useEffect hook cannot be placed inside an async function.
+                // Assuming it should be placed at the top level of the component.
+                // The provided 'd' and '};' at the end of the useEffect block are syntactically incorrect
+                // if placed inside this function or if '};' is meant to close this function.
+                // I will place the useEffect at the top level of the component (outside this function)
+                // and remove the trailing 'd' and '};' to maintain syntactic correctness.
+
                 // Center Node
                 const centerNode: CustomNode = {
                     id: card.id,
@@ -1371,15 +1385,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
         if (newCombo >= 3) {
             // 连击 3 次及以上 → 疯狂庆祝
-            setMascotReaction('combo');
-            setTimeout(() => {
-                setMascotReaction('idle');
-                setComboCount(0); // 重置连击
-            }, 2500);
+            mascotEventBus.say(
+                getMascotDialogue('streak', { streak: newCombo }),
+                'combo'
+            );
         } else {
             // 普通开心
-            setMascotReaction('happy');
-            setTimeout(() => setMascotReaction('idle'), 2000);
+            const speed = Date.now() - cardLoadedTimeRef.current < 2000 ? 'fast' : 'slow';
+            mascotEventBus.say(
+                getMascotDialogue('correct', { streak: newCombo, speed }),
+                speed === 'fast' ? 'surprised' : 'happy'
+            );
         }
 
         // Trigger "Light Up" animation
@@ -1404,9 +1420,11 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         lastActivityRef.current = Date.now();
 
         // [NEW] 答错 → 伤心
-        setMascotReaction('sad');
+        mascotEventBus.say(
+            getMascotDialogue('incorrect'),
+            'sad'
+        );
         setComboCount(0); // 重置连击
-        setTimeout(() => setMascotReaction('idle'), 2000);
 
         setQueue(prev => {
             const [first, ...rest] = prev;
@@ -1436,6 +1454,27 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         return options;
     }, [graphData]);
 
+    // [NEW] Mascot Greeting for New Words (Feature G)
+    useEffect(() => {
+        if (currentItem?.type === 'learn') {
+            cardLoadedTimeRef.current = Date.now();
+
+            // [Feature I] 老师模式：始终讲解 (无论是新词还是复习词)
+            if (isTeacherMode) {
+                mascotEventBus.requestExplanation(currentItem.card.word, {
+                    meaning: currentItem.card.meaning
+                });
+            }
+            // 如果不是老师模式，仅在新词时打招呼
+            else if (currentItem.card.state === State.New) {
+                mascotEventBus.say(
+                    getMascotDialogue('greeting'),
+                    'happy'
+                );
+            }
+        }
+    }, [currentItem, isTeacherMode]);
+
     useEffect(() => {
         if (currentItem?.type === 'choice') {
             setChoiceOptions(generateOptions(currentItem.card));
@@ -1452,6 +1491,12 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         if (selectedCard.id === currentItem.card.id) {
             setChoiceResult('correct');
             playPassSound();
+            if (!isTeacherMode) {
+                mascotEventBus.say(
+                    getMascotDialogue('correct', { streak: comboCount }),
+                    'happy'
+                );
+            }
             // Stats update for correct choice? Maybe keep it simple and track total completion
             setTimeout(() => {
                 setQueue(prev => {
@@ -1466,6 +1511,12 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         } else {
             setChoiceResult('incorrect');
             playFailSound();
+            if (!isTeacherMode) {
+                mascotEventBus.say(
+                    getMascotDialogue('incorrect'),
+                    'thinking'
+                );
+            }
             setSessionStats(prev => ({ ...prev, total: prev.total + 1 })); // Wrong attempt counts as part of total
             setTimeout(() => {
                 setQueue(prev => {
@@ -1523,8 +1574,30 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         const isCorrect = checkValue.trim().toLowerCase() === currentItem.card.word.toLowerCase();
 
         if (isCorrect) {
+            setIsCardFlipped(false); // 翻回正面
+
+            // 播放单词发音
+            if (currentItem.card.pronunciation && currentItem.card.audio) {
+                // TODO: Play Audio
+            }
+
+            // [NEW] 答对 -> 开心 / 连击
+            const newCombo = comboCount + 1;
+            setComboCount(newCombo);
+
+            if (!isTeacherMode) {
+                mascotEventBus.say(
+                    getMascotDialogue(newCombo >= 3 ? 'streak' : 'correct', { streak: newCombo }),
+                    newCombo >= 3 ? 'combo' : 'happy'
+                );
+            }
+
             setTestResult('correct');
             playSpellingSuccessSound();
+            // mascotEventBus.say( // This was moved above
+            //     getMascotDialogue(comboCount >= 3 ? 'streak' : 'correct', { streak: comboCount }),
+            //     comboCount >= 3 ? 'combo' : 'happy'
+            // );
 
             // Mark as Completed (but don't advance yet)
             setCompletedNodeIds(prev => new Set(prev).add(currentItem.nodeId));
@@ -1571,6 +1644,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         } else {
             setTestResult('incorrect');
             playFailSound();
+            mascotEventBus.say(
+                getMascotDialogue('incorrect'),
+                'determined'
+            );
             setSessionStats(prev => ({ ...prev, total: prev.total + 1 }));
 
             // Auto-reset for incorrect answer after delay? 
@@ -2594,6 +2671,28 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     <p className="text-xs text-white/40">{currentLevel?.title || "选择关卡"}</p>
                 </div>
                 <div className="flex-1" />
+                <div className="flex items-center gap-4 mr-4">
+                    {/* [Feature I] 老师模式开关 */}
+                    <button
+                        onClick={() => {
+                            const newValue = !isTeacherMode;
+                            setIsTeacherMode(newValue);
+                            mascotEventBus.setTeacherMode(newValue);
+                            mascotEventBus.say(newValue ? "老师模式已开启！" : "老师模式已关闭", newValue ? "happy" : "slight_smile");
+                        }}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 ${isTeacherMode
+                            ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-300 shadow-[0_0_15px_rgba(234,179,8,0.3)]"
+                            : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60"
+                            }`}
+                        title="开启/关闭老师讲解模式"
+                    >
+                        <span className="text-lg">👓</span>
+                        <span className="text-xs font-bold">讲解模式</span>
+                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${isTeacherMode ? "bg-yellow-500" : "bg-white/20"}`}>
+                            <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${isTeacherMode ? "translate-x-4" : "translate-x-0"}`} />
+                        </div>
+                    </button>
+                </div>
                 {mode === 'session' && (
                     <div className="flex items-center gap-4">
                         {/* Regenerate Button */}
@@ -2796,6 +2895,16 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-green-500/30">
                                                 <Star className="w-10 h-10 text-white fill-white" />
                                             </div>
+
+                                            {/* 吉祥物庆祝 */}
+                                            <div className="flex justify-center mb-6">
+                                                <InteractiveMascot
+                                                    size={120}
+                                                    reaction="combo"
+                                                    skinId={loadMascotConfig().skinId}
+                                                />
+                                            </div>
+
                                             <h2 className="text-3xl font-bold text-white mb-2">关卡完成！</h2>
                                             <p className="text-white/60">思维网络已建立</p>
                                         </div>
@@ -3061,6 +3170,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             onUpdateCard(updatedCard);
                         }
                     }}
+                    // [Feature I] Direct State Sync for Teacher Mode
+                    isTeacher={isTeacherMode}
                 />
             </div>
         </div>

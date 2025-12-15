@@ -4,12 +4,14 @@
  * 支持实时预览和恢复默认设置。
  */
 import { useState, useEffect } from 'react';
-import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2, Keyboard } from 'lucide-react';
+import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2, Keyboard, Smile } from 'lucide-react';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { importCustomDeck } from '@/lib/import-custom';
 import type { EmbeddingConfig } from '@/lib/embedding';
 import { playClickSound, playSuccessSound, playFailSound, playKnowSound, playReviewAgainSound, playReviewHardSound, playReviewGoodSound, playReviewEasySound, playSessionCompleteSound } from '@/lib/sounds';
 import { HotkeySettings } from './HotkeySettings';
+import { loadMascotConfig, saveMascotConfig, MASCOT_SKINS, DEFAULT_MASCOT_NAME, type MascotConfig } from '@/lib/mascot-config';
+import { InteractiveMascot } from './InteractiveMascot';
 
 export interface LiquidGlassSettings {
   opacity: number;
@@ -39,6 +41,8 @@ interface SettingsModalProps {
   onEmbeddingConfigChange?: (config: EmbeddingConfig) => void;
   apiKey?: string;
   onApiKeyChange?: (key: string) => void;
+  mascotConfig: MascotConfig;
+  onMascotConfigChange: (config: Partial<MascotConfig>) => void;
 }
 
 export function SettingsModal({
@@ -50,9 +54,11 @@ export function SettingsModal({
   embeddingConfig,
   onEmbeddingConfigChange,
   apiKey,
-  onApiKeyChange
+  onApiKeyChange,
+  mascotConfig,
+  onMascotConfigChange
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio' | 'hotkey'>('visual');
+  const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio' | 'hotkey' | 'mascot'>('visual');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, word: '' });
   const [bgUrlInput, setBgUrlInput] = useState('');
@@ -259,10 +265,91 @@ export function SettingsModal({
           >
             <Keyboard className="w-3.5 h-3.5" /> 快捷键
           </button>
+          <button
+            onClick={() => setActiveTab('mascot')}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'mascot' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+          >
+            <Smile className="w-3.5 h-3.5" /> 吉祥物
+          </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === 'mascot' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* Preview Area */}
+              <div className="flex flex-col items-center justify-center py-6 bg-white/5 rounded-2xl border border-white/10 relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/20 pointer-events-none" />
+                <InteractiveMascot
+                  size={120}
+                  reaction="happy"
+                  skinId={mascotConfig.skinId}
+                  className="mb-4"
+                />
+                <div className="text-white/80 font-bold text-lg">{mascotConfig.name}</div>
+                <div className="text-white/40 text-xs mt-1">当前外观: {MASCOT_SKINS.find(s => s.id === mascotConfig.skinId)?.name}</div>
+              </div>
+
+              {/* Name Setting */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-white/60 uppercase tracking-wider">吉祥物名字</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={mascotConfig.name}
+                    onChange={(e) => onMascotConfigChange({ name: e.target.value })}
+                    maxLength={10}
+                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-pink-500/50 transition-colors"
+                    placeholder="给它起个名字..."
+                  />
+                  <Smile className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                </div>
+              </div>
+
+              {/* Skin Selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-white/60 uppercase tracking-wider">皮肤风格</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {MASCOT_SKINS.map((skin) => (
+                    <button
+                      key={skin.id}
+                      onClick={() => onMascotConfigChange({ skinId: skin.id })}
+                      disabled={!skin.unlocked}
+                      className={`relative group p-3 rounded-xl border transition-all duration-200 flex flex-col items-center gap-2
+                        ${mascotConfig.skinId === skin.id
+                          ? 'bg-pink-500/20 border-pink-500/50 shadow-[0_0_15px_rgba(236,72,153,0.2)]'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }
+                        ${!skin.unlocked ? 'opacity-50 cursor-not-allowed grayscale' : ''}
+                      `}
+                    >
+                      <div className="text-2xl filter drop-shadow-lg group-hover:scale-110 transition-transform">
+                        {skin.emoji}
+                      </div>
+                      <div className={`text-xs font-medium ${mascotConfig.skinId === skin.id ? 'text-pink-200' : 'text-white/60'}`}>
+                        {skin.name}
+                      </div>
+
+                      {/* Color dots preview */}
+                      <div className="flex gap-1 mt-1">
+                        <div className="w-2 h-2 rounded-full" style={{ background: skin.gradientStart }} />
+                        <div className="w-2 h-2 rounded-full" style={{ background: skin.gradientMid }} />
+                        <div className="w-2 h-2 rounded-full" style={{ background: skin.gradientEnd }} />
+                      </div>
+
+                      {!skin.unlocked && (
+                        <div className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center backdrop-blur-[1px]">
+                          <span className="text-[10px] text-white/80 font-bold px-2 py-1 bg-black/40 rounded-full border border-white/10">
+                            未解锁
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'visual' && (
             <div className="space-y-8">
               {/* Background Image Settings */}

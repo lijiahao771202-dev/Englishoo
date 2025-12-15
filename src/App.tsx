@@ -24,6 +24,7 @@ import { GlobalSelectionMenu } from '@/components/GlobalSelectionMenu';
 import { SettingsModal, DEFAULT_SETTINGS, type LiquidGlassSettings } from '@/components/SettingsModal';
 import { UserProfileMenu } from '@/components/UserProfileMenu';
 import { AmbientPlayer } from '@/components/AmbientPlayer';
+import { loadMascotConfig, saveMascotConfig, type MascotConfig } from '@/lib/mascot-config';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
@@ -62,6 +63,7 @@ function AppContent() {
     const [sessionQueue, setSessionQueue] = useState<WordCard[]>([]); // Actual cards for current session
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [apiKey, setApiKey] = useState(localStorage.getItem('deepseek_api_key') || '');
+    const [mascotConfig, setMascotConfig] = useState<MascotConfig>(loadMascotConfig());
 
     // Add Form State
     const [newWord, setNewWord] = useState('');
@@ -870,6 +872,12 @@ function AppContent() {
                 onEmbeddingConfigChange={handleEmbeddingConfigChange}
                 apiKey={apiKey}
                 onApiKeyChange={setApiKey}
+                mascotConfig={mascotConfig}
+                onMascotConfigChange={(newConfig) => {
+                    const updated = { ...mascotConfig, ...newConfig };
+                    setMascotConfig(updated);
+                    saveMascotConfig(updated);
+                }}
             />
 
             {/* Auth Modal */}
@@ -899,16 +907,19 @@ function AppContent() {
             <GlobalSelectionMenu />
 
             {/* 全局 AI 聊天助手 - 上下文感知模式 */}
-            <FloatingAIChat
-                currentView={view}
-                apiKey={apiKey}
-                contextData={{
-                    cards,
-                    dueCount: cards.filter(c => c.state !== 0 && !c.isFamiliar && c.due && new Date(c.due) < new Date()).length,
-                    newCount: newCards.length,
-                    totalCards: cards.length,
-                }}
-            />
+            {view !== 'guided-learning' && (
+                <FloatingAIChat
+                    currentView={view}
+                    apiKey={apiKey}
+                    skinId={mascotConfig.skinId}
+                    contextData={{
+                        cards,
+                        dueCount: cards.filter(c => c.state !== 0 && !c.isFamiliar && c.due && new Date(c.due) < new Date()).length,
+                        newCount: newCards.length,
+                        totalCards: cards.length,
+                    }}
+                />
+            )}
 
             {/* Header Removed as per user request */}
 

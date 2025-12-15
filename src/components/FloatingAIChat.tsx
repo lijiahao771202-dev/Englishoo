@@ -7,11 +7,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-import { InteractiveMascot, type MascotReaction } from './InteractiveMascot';
+import { InteractiveMascot, type MascotReaction } from '@/components/InteractiveMascot';
 import { getAIModeFromView, getSystemPrompt, getQuickQuestions } from '@/lib/ai-prompts';
+import { mascotEventBus, type MascotEventPayload } from '@/lib/mascot-event-bus';
 import type { WordCard } from '@/types';
 
+// DeepSeek API URL (通过代理)
 // DeepSeek API URL (通过代理)
 const API_URL = '/api/deepseek/chat/completions';
 
@@ -41,6 +44,8 @@ interface FloatingAIChatProps {
         newCount?: number;
         totalCards?: number;
     };
+    /** 吉祥物皮肤 ID */
+    skinId?: string;
 }
 
 import ReactMarkdown from 'react-markdown';
@@ -134,8 +139,24 @@ function ChatBubble({ role, content, onInsertToNotes }: {
     );
 }
 
-export function FloatingAIChat({ currentView = 'guided-learning', currentWord, currentMeaning, apiKey, mascotReaction = 'idle', onInsertToNotes, contextData }: FloatingAIChatProps) {
-    const [isOpen, setIsOpen] = useState(false);
+export function FloatingAIChat({
+    currentView = 'guided-learning',
+    currentWord,
+    currentMeaning,
+    apiKey,
+    mascotReaction = 'idle',
+    onInsertToNotes,
+    contextData,
+    skinId,
+    initiallyOpen = false,
+    isTeacher: isTeacherProp
+}: FloatingAIChatProps) {
+    useEffect(() => {
+        console.log('[FloatingAIChat] Mounted');
+    }, []);
+
+    const [isOpen, setIsOpen] = useState(initiallyOpen);
+    const [isDragging, setIsDragging] = useState(false); // [Performance] 优化拖拽性能
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -143,6 +164,29 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const dragControls = useDragControls();
+
+    // [NEW] 悬停和戳一戳状态
+    const [isHovered, setIsHovered] = useState(false);
+    const isDraggingRef = useRef(false); // [Fix] 用于拦截拖拽后的点击事件
+    const lastActivityRef = useRef(Date.now()); // [Feature I] Use ref for event handler access
+    const [isTeacher, setIsTeacher] = useState(false);
+    const isTeacherRef = useRef(false); // [Feature I] Use ref for event handler access
+    const [customBubbleText, setCustomBubbleText] = useState<string | undefined>(undefined);
+    const [explanationText, setExplanationText] = useState<string | undefined>(undefined); // [Feature I] Teacher explanation
+    const [localReaction, setLocalReaction] = useState<MascotReaction>(mascotReaction);
+
+    // Sync isTeacher prop if provided
+    useEffect(() => {
+        if (typeof isTeacherProp !== 'undefined') {
+            setIsTeacher(isTeacherProp);
+            isTeacherRef.current = isTeacherProp;
+        }
+    }, [isTeacherProp]);
+
+    // Keep ref in sync with state if state changes via other means (e.g. event bus)
+    useEffect(() => {
+        isTeacherRef.current = isTeacher;
+    }, [isTeacher]);
 
     // 上下文感知模式计算
     const modeConfig = useMemo(() => getAIModeFromView(currentView), [currentView]);
@@ -171,6 +215,35 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // 主动推送状态
+    const [hasNotifiedReview, setHasNotifiedReview] = useState(false);
+
+    // 智能推送：复习提醒
+    useEffect(() => {
+        if (!contextData || hasNotifiedReview) return;
+
+        // 当有待复习卡片 (>0) 且当前不在复习模式时
+        if (contextData.dueCount && contextData.dueCount > 0 && currentView !== 'review' && currentView !== 'guided-learning') {
+            const time = new Date().getHours();
+            let greeting = "早安";
+            if (time >= 12 && time < 18) greeting = "下午好";
+            if (time >= 18) greeting = "晚上好";
+
+            const msg = {
+                role: 'assistant' as const,
+                content: `👋 ${greeting}！发现你有 **${contextData.dueCount}** 张卡片需要复习哦。\n\n要现在的开始复习吗？`
+            };
+
+            // 延迟 3 秒推送，避免打扰启动
+            const timer = setTimeout(() => {
+                setMessages(prev => [...prev, msg]);
+                setIsOpen(true); // 自动展开
+                setHasNotifiedReview(true);
+            }, 3000);
+
+            return () => clearTimeout(timer);
+        }
+    }, [contextData, contextData?.dueCount, hasNotifiedReview, currentView]);
     useEffect(() => {
         scrollToBottom();
     }, [messages, streamingContent]);
@@ -268,7 +341,8 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
                             const delta = parsed.choices?.[0]?.delta?.content || '';
                             fullContent += delta;
                             setStreamingContent(fullContent);
-                        } catch (e) {
+                            setStreamingContent(fullContent);
+                        } catch {
                             // 忽略解析错误
                         }
                     }
@@ -278,19 +352,175 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
             // 流式完成，添加到消息列表
             setMessages(prev => [...prev, { role: 'assistant', content: fullContent }]);
             setStreamingContent('');
-        } catch (error) {
-            console.error('[AI Chat] Error:', error);
-            setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，发生了错误。请稍后再试。' }]);
+        } catch (_) {
+            console.error('Chat Error:', _);
+            setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，我遇到了一点问题，请稍后再试。' }]);
+            setLocalReaction('confused');
+            setTimeout(() => setLocalReaction(prev => prev === 'confused' ? 'idle' : prev), 3000);
             setStreamingContent('');
         } finally {
             setIsLoading(false);
         }
     }, [input, isLoading, messages, systemPrompt, apiKey]);
 
-    // [NEW] 悬停和戳一戳状态
-    const [isHovered, setIsHovered] = useState(false);
-    const [localReaction, setLocalReaction] = useState(mascotReaction);
-    const lastActivityRef = useRef(Date.now());
+    // [Feature I] 老师模式状态
+    // const [isTeacher, setIsTeacher] = useState(false); // Removed duplicate
+
+
+    // 监听 MascotEventBus
+    useEffect(() => {
+        const handleMascotEvent = (event: MascotEventPayload) => {
+            console.log('[FloatingAIChat] Received event:', event.type, event);
+            if (event.type === 'SAY') {
+                if (event.text) setCustomBubbleText(event.text);
+                if (event.reaction) setLocalReaction(event.reaction);
+
+                // 自动清除文字
+                if (event.duration && event.duration > 0) {
+                    setTimeout(() => {
+                        setCustomBubbleText("");
+                        setLocalReaction('idle');
+                    }, event.duration);
+                }
+            } else if (event.type === 'REACT') {
+                if (event.reaction) setLocalReaction(event.reaction);
+                // 自动恢复 idle
+                if (event.duration && event.duration > 0) {
+                    setTimeout(() => {
+                        setLocalReaction('idle');
+                    }, event.duration);
+                }
+            } else if (event.type === 'SET_TEACHER_MODE') {
+                const isTeacherMode = !!event.isTeacher;
+                setIsTeacher(isTeacherMode);
+                // [Visual Optimization] 关闭时立即收起讲解气泡
+                if (!isTeacherMode) {
+                    setExplanationText(undefined);
+                    if (localReaction === 'thinking' || localReaction === 'focused') {
+                        setLocalReaction('idle');
+                    }
+                }
+            } else if (event.type === 'LEARN_WORD') {
+                if (event.text && isTeacherRef.current) {
+                    // [Feature I] AI 老师实时生成讲解
+                    const word = event.text;
+                    const contextFn = event.context || {};
+
+                    // 检查 API Key
+                    const apiKey = localStorage.getItem('deepseek_api_key');
+                    if (!apiKey) {
+                        setExplanationText(`### 🔑 需要设置 API Key\n\n请点击左下角设置图标，填入 DeepSeek API Key 才能开启 AI 老师讲解哦！`);
+                        setLocalReaction('confused');
+                        return;
+                    }
+
+                    // 先显示"思考中"状态 (防止普通气泡抢戏)
+                    setExplanationText(`🤖 正在思考如何讲解 **${word}**...`);
+                    setLocalReaction('thinking');
+
+                    // 调用 DeepSeek API
+                    // 注意：实际项目中建议在 EventBus 中处理 API 调用，或抽取为独立 Service
+                    // 为了快速实现，这里直接复用现有的 fetch 逻辑 (但为了代码整洁，我们假设有一个 fetchExplanation helper)
+                    // 由于没有独立的 service 文件，我们在 useEffect 内部定义临时的 async 逻辑
+                    // [Streaming Implementation]
+                    (async () => {
+                        try {
+                            const prompt = `你是我的英语私教。请用生动幽默的方式讲解单词 "${word}"。包含：\n1. 发音提示\n2. 核心含义 (${contextFn.meaning || '自动推断'})\n3. 一个超好记的助记口诀\n4. 一个简短的生活例句。\n请使用 Markdown 格式，保持简短（200字以内）。`;
+
+                            console.log('[TeacherMode] Starting fetch request to DeepSeek...', { word, apiKey: '***' });
+
+                            // Use the same proxy URL as API_URL to avoid CORS
+                            const response = await fetch(API_URL, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${localStorage.getItem('deepseek_api_key') || ''}`
+                                },
+                                body: JSON.stringify({
+                                    model: 'deepseek-chat',
+                                    messages: [
+                                        { role: 'system', content: '你是专业的英语单词记忆教练。风格幽默风趣。' },
+                                        { role: 'user', content: prompt }
+                                    ],
+                                    temperature: 0.7,
+                                    stream: true // Enable streaming
+                                })
+                            });
+
+                            console.log('[TeacherMode] Response received:', response.status, response.statusText);
+
+                            if (!response.ok) {
+                                const errText = await response.text();
+                                console.error('[TeacherMode] Response not OK:', errText);
+                                throw new Error(`Network response was not ok: ${response.status} ${errText}`);
+                            }
+
+                            const reader = response.body?.getReader();
+                            if (!reader) throw new Error('No reader available');
+
+                            let accumulatedText = "";
+                            // setExplanationText(""); // DO NOT clear here, wait for first chunk to replace "Thinking..."
+
+                            // Flag to indicate we haven't received data yet
+                            let firstChunkReceived = false;
+
+                            setLocalReaction('focused');
+
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+
+                                const chunk = new TextDecoder().decode(value);
+                                const lines = chunk.split('\n');
+
+                                for (const line of lines) {
+                                    if (line.startsWith('data: ')) {
+                                        const dataStr = line.slice(6);
+                                        if (dataStr === '[DONE]') break;
+
+                                        try {
+                                            const json = JSON.parse(dataStr);
+                                            const content = json.choices?.[0]?.delta?.content;
+                                            if (content) {
+                                                if (!firstChunkReceived) {
+                                                    accumulatedText = ""; // Clear "Thinking..." on first real data
+                                                    firstChunkReceived = true;
+                                                }
+                                                accumulatedText += content;
+                                                setExplanationText(accumulatedText);
+                                            }
+                                        } catch (e) {
+                                            console.warn('Error parsing stream chunk', e);
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Explanation generation failed:', error);
+                            setExplanationText((prev) => prev ? prev + "\n\n(网络中断)" : `### 😵 网络开小差了\n\n无法获取 **${word}** 的讲解。`);
+                            setLocalReaction('dizzy');
+                        }
+                    })();
+                }
+            } else if (event.type === 'EXPLAIN') {
+                if (event.text) {
+                    // [Feature I] 静态讲解内容可以直接显示
+                    setExplanationText(event.text);
+                    setLocalReaction('focused');
+
+                    // 20秒后自动关闭讲解气泡 (时间延长以阅读长文)
+                    setTimeout(() => {
+                        setExplanationText(undefined);
+                        setLocalReaction('idle');
+                    }, 20000);
+                }
+            }
+        };
+
+        const unsubscribe = mascotEventBus.subscribe(handleMascotEvent);
+        return () => unsubscribe();
+    }, []);
+
 
     // 同步外部 reaction
     useEffect(() => {
@@ -334,14 +564,64 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
         }
     };
 
+    // 场景感知：监听 TTS 播放状态 - [已移除: 用户不想要听歌样式]
+    // useEffect(() => {
+    //     const handleTTS = (e: Event) => {
+    //         const detail = (e as CustomEvent).detail;
+    //         if (detail.isPlaying) {
+    //             setLocalReaction('listening');
+    //         } else {
+    //             setLocalReaction(prev => prev === 'listening' ? 'idle' : prev);
+    //         }
+    //     };
+    //     window.addEventListener('tts-state-change', handleTTS);
+    //     return () => window.removeEventListener('tts-state-change', handleTTS);
+    // }, []);
+
+    // 闲置检测 (Idle Timeout)
+    useEffect(() => {
+        const checkIdle = () => {
+            if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle' && !isOpen) {
+                setLocalReaction('sleepy');
+            }
+        };
+        const timer = setInterval(checkIdle, 10000); // Check every 10s
+        return () => clearInterval(timer);
+    }, [localReaction, isOpen]);
+
     return (
         <>
             {/* 悬浮按钮 - 使用自定义 InteractiveMascot */}
-            <motion.button
-                className="fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full 
-                   flex items-center justify-center
-                   hover:scale-105 active:scale-95 transition-transform cursor-pointer overflow-visible"
+            {/* 悬浮按钮 - 使用自定义 InteractiveMascot */}
+            <motion.div
+                drag
+                dragMomentum={false}
+                dragTransition={{ power: 0, timeConstant: 0 }} // [Performance] 零动量，松手即停
+                whileHover={{ scale: isDragging ? 1 : 1.05 }}
+                whileTap={{ scale: isDragging ? 1 : 0.95 }}
+                className={cn(
+                    "fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full",
+                    "flex items-center justify-center",
+                    "cursor-pointer overflow-visible" // [Fix] 移除 transition-transform 避免与 Framer Motion 冲突
+                )}
+                onDragStart={() => {
+                    isDraggingRef.current = true; // [Logic] 锁定点击
+                    setIsDragging(true); // [Performance] 开启降级渲染
+                }}
+                onDragEnd={() => {
+                    setIsDragging(false); // [Performance] 恢复渲染
+                    // [Logic] 延迟解锁点击，防止松手瞬间触发 onClick
+                    setTimeout(() => {
+                        isDraggingRef.current = false;
+                    }, 200);
+                }}
+                className={cn(
+                    "fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full",
+                    "flex items-center justify-center",
+                    "cursor-pointer overflow-visible"
+                )}
                 onClick={() => {
+                    if (isDraggingRef.current) return; // [Fix] 如果是拖拽操作，拦截点击
                     if (!isOpen) {
                         handlePoke(); // 戳一戳效果
                         setTimeout(() => setIsOpen(true), 300); // 延迟打开
@@ -373,13 +653,18 @@ export function FloatingAIChat({ currentView = 'guided-learning', currentWord, c
                         >
                             <InteractiveMascot
                                 reaction={localReaction}
-                                size={96}
+                                size={60}
                                 isHovered={isHovered}
+                                skinId={skinId}
+                                customBubbleText={customBubbleText}
+                                isTeacher={isTeacher}
+                                explanation={explanationText}
+                                isDragging={isDragging}
                             />
                         </motion.div>
                     )}
                 </AnimatePresence>
-            </motion.button>
+            </motion.div>
 
             {/* 聊天面板 - 可拖拽 */}
             <AnimatePresence>
