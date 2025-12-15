@@ -48,10 +48,10 @@ export function Deck3DCard({ deck, onClick, onDelete }: Deck3DCardProps) {
             exit={{ opacity: 0, scale: 0.9 }}
             className="relative group h-48 rounded-[2rem] transition-all cursor-pointer select-none"
         >
-            {/* Glass Background Layer */}
-            <div className="absolute inset-0 rounded-[2rem] bg-white/10 backdrop-blur-2xl border border-white/20 shadow-xl overflow-hidden group-hover:bg-white/15 transition-colors">
+            {/* Glass Background Layer - Pink Theme */}
+            <div className="absolute inset-0 rounded-[2rem] bg-gradient-to-br from-white/10 to-pink-500/5 backdrop-blur-2xl border border-white/20 shadow-xl overflow-hidden group-hover:bg-white/15 group-hover:border-pink-300/30 transition-all duration-300">
                 {/* Inner highlight for depth */}
-                <div className="absolute inset-0 rounded-[2rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" />
+                <div className="absolute inset-0 rounded-[2rem] shadow-[inset_0_1px_1px_rgba(255,200,200,0.2)]" />
             </div>
 
             {/* Content Layer */}

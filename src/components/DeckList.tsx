@@ -226,7 +226,7 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
                   value={newDeckName}
                   onChange={(e) => setNewDeckName(e.target.value)}
                   placeholder="卡包名称..."
-                  className="w-full bg-transparent text-center text-xl font-bold text-white placeholder:text-white/20 focus:outline-none border-b border-white/20 pb-2 focus:border-white/50 transition-colors"
+                  className="w-full bg-transparent text-center text-xl font-bold text-white placeholder:text-white/20 focus:outline-none border-b border-pink-200/20 pb-2 focus:border-pink-200/50 transition-colors"
                 />
                 <div className="flex gap-3 w-full">
                   <button
@@ -238,7 +238,7 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-white/90 text-black text-sm font-bold shadow-lg hover:scale-105 transition-transform"
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white text-sm font-bold shadow-lg shadow-pink-500/20 hover:scale-105 transition-transform"
                   >
                     创建
                   </button>
@@ -246,10 +246,10 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
               </form>
             ) : (
               <div onClick={() => setIsCreating(true)} className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-3 group">
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-white/30 group-hover:scale-110 group-hover:bg-white/10 group-hover:text-white group-hover:border-white/20 transition-all duration-300">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-pink-200/30 group-hover:scale-110 group-hover:bg-rose-500/10 group-hover:text-pink-200 group-hover:border-rose-500/20 transition-all duration-300">
                   <Plus className="w-8 h-8" />
                 </div>
-                <span className="text-sm font-semibold text-white/40 group-hover:text-white/80 tracking-wide transition-colors">新建卡包</span>
+                <span className="text-sm font-semibold text-white/40 group-hover:text-pink-100/80 tracking-wide transition-colors">新建卡包</span>
               </div>
             )}
           </div>

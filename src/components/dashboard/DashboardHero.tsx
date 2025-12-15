@@ -33,17 +33,17 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
     return (
         <div className="relative w-full mb-12">
-            {/* Main Glass Container */}
+            {/* Main Glass Container - Pink/Rose Theme */}
             <motion.div
                 initial={{ opacity: 0, y: 20, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 className="relative rounded-[2.5rem] overflow-hidden"
             >
-                {/* Glass Background */}
-                <div className="absolute inset-0 bg-white/10 backdrop-blur-2xl border border-white/20 rounded-[2.5rem]" />
+                {/* Pink Glass Background */}
+                <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 via-rose-500/5 to-purple-500/10 backdrop-blur-2xl border border-pink-200/20 rounded-[2.5rem]" />
 
-                {/* Subtle inner shadow for depth */}
-                <div className="absolute inset-0 rounded-[2.5rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" />
+                {/* Subtle inner shadow for depth - Rose tint */}
+                <div className="absolute inset-0 rounded-[2.5rem] shadow-[inset_0_1px_1px_rgba(255,200,200,0.2)]" />
 
                 {/* Content */}
                 <div className="relative z-10 p-8 lg:p-10">
@@ -53,7 +53,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                         <motion.div
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
-                            className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold uppercase tracking-widest text-white/70"
+                            className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold uppercase tracking-widest text-pink-100/70"
                         >
                             {dateString}
                         </motion.div>
@@ -65,9 +65,9 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                         >
                             <button
                                 onClick={onStartSession}
-                                className="group px-6 py-3 rounded-2xl bg-white/90 hover:bg-white text-black font-bold flex items-center gap-2 hover:scale-105 transition-all shadow-lg backdrop-blur-sm"
+                                className="group px-6 py-3 rounded-2xl bg-white/90 hover:bg-white text-rose-950 font-bold flex items-center gap-2 hover:scale-105 transition-all shadow-lg shadow-rose-900/10 backdrop-blur-sm"
                             >
-                                <Play className="w-4 h-4 fill-black" />
+                                <Play className="w-4 h-4 fill-rose-950" />
                                 <span className="hidden sm:inline">Start Session</span>
                             </button>
                             <button
@@ -89,12 +89,12 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-thin text-white/90 leading-tight">
                             {greeting},
                         </h1>
-                        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight">
+                        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-pink-100 to-white bg-clip-text text-transparent leading-tight drop-shadow-sm">
                             {profile.nickname}
                         </h1>
                     </motion.div>
 
-                    {/* Stats Grid - Glass Tiles */}
+                    {/* Stats Grid - Pink Glass Tiles */}
                     <div className="grid grid-cols-3 gap-4">
 
                         {/* Streak */}
@@ -102,17 +102,17 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.2 }}
-                            className="relative p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl group hover:bg-white/10 transition-all"
+                            className="relative p-5 rounded-2xl bg-rose-500/5 border border-rose-200/10 backdrop-blur-xl group hover:bg-rose-500/10 transition-all shadow-sm"
                         >
                             <div className="text-center">
-                                <div className="flex items-center justify-center gap-1.5 mb-2 text-white/50 text-[10px] font-bold uppercase tracking-widest">
-                                    <TrendingUp className="w-3 h-3 text-orange-400" />
+                                <div className="flex items-center justify-center gap-1.5 mb-2 text-rose-200/50 text-[10px] font-bold uppercase tracking-widest">
+                                    <TrendingUp className="w-3 h-3 text-rose-400" />
                                     <span>Streak</span>
                                 </div>
                                 <div className="text-4xl font-black text-white tabular-nums">
                                     {stats.streak}
                                 </div>
-                                <div className="text-xs text-white/40 font-medium mt-1">Days</div>
+                                <div className="text-xs text-rose-200/40 font-medium mt-1">Days</div>
                             </div>
                         </motion.div>
 
@@ -121,11 +121,11 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.25 }}
-                            className="relative p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl group hover:bg-white/10 transition-all"
+                            className="relative p-5 rounded-2xl bg-pink-500/5 border border-pink-200/10 backdrop-blur-xl group hover:bg-pink-500/10 transition-all shadow-sm"
                         >
                             <div className="text-center">
-                                <div className="flex items-center justify-center gap-1.5 mb-2 text-white/50 text-[10px] font-bold uppercase tracking-widest">
-                                    <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                                <div className="flex items-center justify-center gap-1.5 mb-2 text-pink-200/50 text-[10px] font-bold uppercase tracking-widest">
+                                    <CheckCircle2 className="w-3 h-3 text-pink-400" />
                                     <span>To Review</span>
                                 </div>
                                 <div className="text-4xl font-black text-white tabular-nums">
@@ -134,7 +134,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                                 {/* Mini progress bar */}
                                 <div className="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
                                     <div
-                                        className="h-full bg-blue-400/60 rounded-full"
+                                        className="h-full bg-pink-400/60 rounded-full shadow-[0_0_8px_rgba(244,114,182,0.4)]"
                                         style={{ width: `${Math.min((stats.totalDue / 50) * 100, 100)}%` }}
                                     />
                                 </div>
@@ -146,10 +146,10 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.3 }}
-                            className="relative p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl group hover:bg-white/10 transition-all"
+                            className="relative p-5 rounded-2xl bg-purple-500/5 border border-purple-200/10 backdrop-blur-xl group hover:bg-purple-500/10 transition-all shadow-sm"
                         >
                             <div className="text-center">
-                                <div className="flex items-center justify-center gap-1.5 mb-2 text-white/50 text-[10px] font-bold uppercase tracking-widest">
+                                <div className="flex items-center justify-center gap-1.5 mb-2 text-purple-200/50 text-[10px] font-bold uppercase tracking-widest">
                                     <Sparkles className="w-3 h-3 text-purple-400" />
                                     <span>New Words</span>
                                 </div>
@@ -159,7 +159,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                                 {/* Mini progress bar */}
                                 <div className="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
                                     <div
-                                        className="h-full bg-purple-400/60 rounded-full"
+                                        className="h-full bg-purple-400/60 rounded-full shadow-[0_0_8px_rgba(192,132,252,0.4)]"
                                         style={{ width: `${Math.min((stats.totalNew / 100) * 100, 100)}%` }}
                                     />
                                 </div>

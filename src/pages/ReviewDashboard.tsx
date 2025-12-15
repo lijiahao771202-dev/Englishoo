@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, CheckCircle2, ChevronRight, AlertCircle, TrendingUp, Sun, Moon, ChevronDown } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronRight, AlertCircle, TrendingUp, Sun, Moon, ChevronDown, List } from 'lucide-react';
 import type { WordCard } from '@/types';
 import { cn } from '@/lib/utils';
 import { isPast, isToday, isTomorrow, format } from 'date-fns';
@@ -11,7 +11,7 @@ interface ReviewDashboardProps {
     onStartReview: (cards: WordCard[]) => void;
 }
 
-type BucketType = 'overdue' | 'today' | 'tomorrow' | 'future';
+type BucketType = 'overdue' | 'today' | 'tomorrow' | 'future' | 'all';
 
 export function ReviewDashboard({ onBack, cards, onStartReview }: ReviewDashboardProps) {
     const [now, setNow] = useState(new Date());
@@ -39,6 +39,7 @@ export function ReviewDashboard({ onBack, cards, onStartReview }: ReviewDashboar
         const today: WordCard[] = [];
         const tomorrow: WordCard[] = [];
         const future: WordCard[] = [];
+        const all: WordCard[] = [];
 
         cards.forEach(card => {
             // Only include cards that are NOT new (state != 0) and have a due date
@@ -53,6 +54,9 @@ export function ReviewDashboard({ onBack, cards, onStartReview }: ReviewDashboar
             if (!card.due) return;
             if (card.state === 0) return; // New cards don't belong here
             if (card.isFamiliar) return;
+
+            // 添加到"所有单词"列表
+            all.push(card);
 
             const dueDate = new Date(card.due);
 
@@ -85,7 +89,10 @@ export function ReviewDashboard({ onBack, cards, onStartReview }: ReviewDashboar
             }
         });
 
-        return { overdue, today, tomorrow, future };
+        // 按到期时间排序所有单词
+        all.sort((a, b) => new Date(a.due!).getTime() - new Date(b.due!).getTime());
+
+        return { overdue, today, tomorrow, future, all };
     }, [cards, now]);
 
     const totalDue = buckets.overdue.length;
@@ -192,14 +199,28 @@ export function ReviewDashboard({ onBack, cards, onStartReview }: ReviewDashboar
                     isExpanded={expandedBuckets.has('future')}
                     onToggle={() => toggleBucket('future')}
                 />
+
+                {/* 所有单词区块 */}
+                <BucketRow
+                    type="all"
+                    cards={buckets.all}
+                    icon={<List className="w-5 h-5 text-slate-400" />}
+                    label="所有单词"
+                    subLabel={`复习队列共 ${buckets.all.length} 个单词`}
+                    color="bg-slate-500/5 border-slate-500/10 hover:bg-slate-500/10"
+                    isFuture
+                    isExpanded={expandedBuckets.has('all')}
+                    onToggle={() => toggleBucket('all')}
+                    showAlways
+                />
             </div>
         </div>
     );
 }
 
-function BucketRow({ type, cards, icon, label, subLabel, color, onAction, isFuture, disabled, isExpanded, onToggle }: any) {
+function BucketRow({ type, cards, icon, label, subLabel, color, onAction, isFuture, disabled, isExpanded, onToggle, showAlways }: any) {
     const count = cards.length;
-    if (count === 0 && type !== 'overdue') return null; // Hide empty future buckets, but maybe show 'overdue' even if 0 as 'Good job'?
+    if (count === 0 && type !== 'overdue' && !showAlways) return null; // Hide empty future buckets, but maybe show 'overdue' even if 0 as 'Good job'?
 
     return (
         <motion.div

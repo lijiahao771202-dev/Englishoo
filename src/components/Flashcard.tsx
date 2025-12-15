@@ -489,13 +489,13 @@ export function Flashcard({
       onClick={() => handleReveal(false)}
     >
       <div className={cn(
-        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500",
-        "hover:shadow-[0_12px_40px_rgba(0,0,0,0.6)] hover:border-white/20"
+        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-pink-200/20 bg-gradient-to-br from-white/10 to-pink-500/5 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500",
+        "hover:shadow-[0_12px_40px_rgba(244,114,182,0.1)] hover:border-pink-200/30"
       )}>
 
-        {/* Ambient Light Effects */}
-        <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
+        {/* Ambient Light Effects - Pink/Rose Theme */}
+        <div className="absolute -top-20 -left-20 w-64 h-64 bg-pink-500/20 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-rose-500/20 rounded-full blur-[100px] pointer-events-none" />
 
         {/* Resize Handle */}
         <div

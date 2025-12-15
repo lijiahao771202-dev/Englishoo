@@ -205,14 +205,14 @@ export function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
       <div
-        className="w-full max-w-md bg-slate-900/90 border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full max-w-md bg-slate-950/80 border border-pink-500/20 rounded-[2rem] shadow-[0_0_40px_rgba(244,63,94,0.1)] overflow-hidden flex flex-col max-h-[90vh] backdrop-blur-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <h2 className="text-xl font-bold text-white">设置</h2>
+        <div className="flex items-center justify-between p-6 border-b border-white/5 bg-white/5">
+          <h2 className="text-xl font-bold bg-gradient-to-r from-pink-200 to-rose-100 bg-clip-text text-transparent">设置</h2>
           <button
             onClick={onClose}
             className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors"
@@ -222,42 +222,42 @@ export function SettingsModal({
         </div>
 
         {/* Tabs */}
-        <div className="flex p-2 gap-2 border-b border-white/5 overflow-x-auto">
+        <div className="grid grid-cols-3 gap-2 p-3 border-b border-white/5 bg-black/20">
           <button
             onClick={() => setActiveTab('visual')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'visual' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'visual' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <Palette className="w-4 h-4" /> 界面
+            <Palette className="w-3.5 h-3.5" /> 界面
           </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'data' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'data' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <Database className="w-4 h-4" /> 数据
+            <Database className="w-3.5 h-3.5" /> 数据
           </button>
           <button
             onClick={() => setActiveTab('algo')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'algo' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'algo' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <BrainCircuit className="w-4 h-4" /> 算法
+            <BrainCircuit className="w-3.5 h-3.5" /> 算法
           </button>
           <button
             onClick={() => setActiveTab('api')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'api' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'api' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <Key className="w-4 h-4" /> API
+            <Key className="w-3.5 h-3.5" /> API
           </button>
           <button
             onClick={() => setActiveTab('audio')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'audio' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'audio' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <Volume2 className="w-4 h-4" /> 音效
+            <Volume2 className="w-3.5 h-3.5" /> 音效
           </button>
           <button
             onClick={() => setActiveTab('hotkey')}
-            className={`flex-1 min-w-[80px] py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'hotkey' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'hotkey' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
           >
-            <Keyboard className="w-4 h-4" /> 快捷键
+            <Keyboard className="w-3.5 h-3.5" /> 快捷键
           </button>
         </div>
 
@@ -282,8 +282,8 @@ export function SettingsModal({
                       file:mr-4 file:py-2 file:px-4
                       file:rounded-full file:border-0
                       file:text-xs file:font-semibold
-                      file:bg-blue-500/20 file:text-blue-400
-                      hover:file:bg-blue-500/30"
+                      file:bg-pink-500/20 file:text-pink-400
+                      hover:file:bg-pink-500/30"
                   />
                   <p className="text-[10px] text-white/30">支持大图上传，系统将自动优化至 1080P 以节省空间。</p>
                 </div>
@@ -301,7 +301,7 @@ export function SettingsModal({
                     />
                     <button
                       onClick={() => handleChange('backgroundImage', bgUrlInput)}
-                      className="px-3 py-2 bg-blue-500/20 text-blue-300 rounded-lg text-xs hover:bg-blue-500/30"
+                      className="px-3 py-2 bg-pink-500/20 text-pink-300 rounded-lg text-xs hover:bg-pink-500/30"
                     >
                       应用
                     </button>
@@ -330,7 +330,7 @@ export function SettingsModal({
                             }}
                           />
                           {settings.backgroundImage === item.url && (
-                            <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                            <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
                           )}
                           {/* 时间戳显示 */}
                           <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white/70 px-1 py-0.5 truncate">
@@ -353,7 +353,7 @@ export function SettingsModal({
                     >
                       <div className="text-[10px] text-white/50 group-hover:text-white">默认</div>
                       {settings.backgroundImage === '' && (
-                        <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                        <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
                       )}
                     </button>
 
@@ -428,108 +428,161 @@ export function SettingsModal({
                       <div className="text-[8px] text-white/50">精选壁纸</div>
                     </button>
 
-                    {/* Presets */}
+                    {/* 动漫风格 (Anime Style from waifu.im) */}
+                    <button
+                      onClick={() => {
+                        const categories = ['waifu', 'maid', 'uniform'];
+                        const category = categories[Math.floor(Math.random() * categories.length)];
+                        const url = `https://api.waifu.im/search?included_tags=${category}&width=>=1920&height=>=1080&is_nsfw=false&t=${Date.now()}`;
+                        fetch(url)
+                          .then(res => res.json())
+                          .then(data => {
+                            if (data.images && data.images[0]) {
+                              handleChange('backgroundImage', data.images[0].url);
+                            }
+                          })
+                          .catch(() => {
+                            // Fallback to static anime wallpaper
+                            handleChange('backgroundImage', 'https://w.wallhaven.cc/full/ex/wallhaven-exolv8.jpg');
+                          });
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-pink-500/20 to-purple-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="动漫壁纸"
+                    >
+                      <div className="font-bold text-xs text-pink-400 group-hover:text-pink-300">🎨</div>
+                      <div className="text-[8px] text-white/50">动漫</div>
+                    </button>
+
+                    {/* 抽象艺术 (Abstract Art) */}
+                    <button
+                      onClick={() => {
+                        const abstractWallpapers = [
+                          'https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=1920&q=80', // Fluid art
+                          'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=1920&q=80', // Gradient waves
+                          'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=80', // Colorful gradient
+                          'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=80', // Purple gradient
+                          'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?w=1920&q=80', // 3D abstract
+                          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1920&q=80', // Geometric
+                          'https://images.unsplash.com/photo-1620121692029-d088224ddc74?w=1920&q=80', // Neon abstract
+                          'https://images.unsplash.com/photo-1604076913837-52ab5629fba9?w=1920&q=80', // Marble art
+                        ];
+                        const randomUrl = abstractWallpapers[Math.floor(Math.random() * abstractWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="抽象艺术壁纸"
+                    >
+                      <div className="font-bold text-xs text-violet-400 group-hover:text-violet-300">🎭</div>
+                      <div className="text-[8px] text-white/50">抽象艺术</div>
+                    </button>
+
+                    {/* 城市夜景 (City Night) */}
+                    <button
+                      onClick={() => {
+                        const cityWallpapers = [
+                          'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1920&q=80', // Tokyo night
+                          'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=1920&q=80', // NYC skyline
+                          'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=1920&q=80', // City lights
+                          'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=1920&q=80', // Sunset city
+                          'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1920&q=80', // Urban night
+                          'https://images.unsplash.com/photo-1470219556762-1771e7f9427d?w=1920&q=80', // Bridge at night
+                          'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=1920&q=80', // Neon city
+                          'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=1920&q=80', // Hong Kong
+                        ];
+                        const randomUrl = cityWallpapers[Math.floor(Math.random() * cityWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="城市夜景壁纸"
+                    >
+                      <div className="font-bold text-xs text-cyan-400 group-hover:text-cyan-300">🌃</div>
+                      <div className="text-[8px] text-white/50">城市夜景</div>
+                    </button>
+
+                    {/* 星空银河 (Galaxy & Stars) */}
+                    <button
+                      onClick={() => {
+                        const spaceWallpapers = [
+                          'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=80', // Milky way
+                          'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920&q=80', // Galaxy
+                          'https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?w=1920&q=80', // Stars
+                          'https://images.unsplash.com/photo-1465101162946-4377e57745c3?w=1920&q=80', // Nebula
+                          'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80', // Earth from space
+                          'https://images.unsplash.com/photo-1516339901601-2e1b62dc0c45?w=1920&q=80', // Aurora stars
+                          'https://images.unsplash.com/photo-1507400492013-162706c8c05e?w=1920&q=80', // Deep space
+                          'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1920&q=80', // Colorful space
+                        ];
+                        const randomUrl = spaceWallpapers[Math.floor(Math.random() * spaceWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="星空银河壁纸"
+                    >
+                      <div className="font-bold text-xs text-indigo-400 group-hover:text-indigo-300">🌌</div>
+                      <div className="text-[8px] text-white/50">星空银河</div>
+                    </button>
+
+                    {/* 极简渐变 (Minimal Gradient) */}
+                    <button
+                      onClick={() => {
+                        const gradientWallpapers = [
+                          'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=80', // Purple gradient
+                          'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=80', // Colorful gradient
+                          'https://images.unsplash.com/photo-1557683316-973673baf926?w=1920&q=80', // Blue gradient
+                          'https://images.unsplash.com/photo-1557683311-eac922347aa1?w=1920&q=80', // Orange gradient
+                          'https://images.unsplash.com/photo-1557682224-5b8590cd9ec5?w=1920&q=80', // Green gradient
+                          'https://images.unsplash.com/photo-1557682260-96773eb01377?w=1920&q=80', // Pink gradient
+                        ];
+                        const randomUrl = gradientWallpapers[Math.floor(Math.random() * gradientWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-rose-500/20 to-orange-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="极简渐变壁纸"
+                    >
+                      <div className="font-bold text-xs text-rose-400 group-hover:text-rose-300">🌈</div>
+                      <div className="text-[8px] text-white/50">极简渐变</div>
+                    </button>
+
+                    {/* 海洋沙滩 (Ocean & Beach) */}
+                    <button
+                      onClick={() => {
+                        const oceanWallpapers = [
+                          'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920&q=80', // Tropical beach
+                          'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1920&q=80', // Ocean waves
+                          'https://images.unsplash.com/photo-1519046904884-53103b34b206?w=1920&q=80', // Beach sunset
+                          'https://images.unsplash.com/photo-1471922694854-ff1b63b20054?w=1920&q=80', // Blue ocean
+                          'https://images.unsplash.com/photo-1484291470158-b8f8d608850d?w=1920&q=80', // Underwater
+                          'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=1920&q=80', // Wave crash
+                        ];
+                        const randomUrl = oceanWallpapers[Math.floor(Math.random() * oceanWallpapers.length)];
+                        handleChange('backgroundImage', randomUrl);
+                      }}
+                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-sky-500/20 to-teal-500/20 flex flex-col items-center justify-center gap-1 group"
+                      title="海洋沙滩壁纸"
+                    >
+                      <div className="font-bold text-xs text-sky-400 group-hover:text-sky-300">🌊</div>
+                      <div className="text-[8px] text-white/50">海洋沙滩</div>
+                    </button>
+
+                    {/* Presets - Static preview images */}
                     {[
                       'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80', // Space
+                      'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800&q=80', // Starry mountain
+                      'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=800&q=80', // Tokyo
                     ].map((url, idx) => (
                       <button
                         key={idx}
-                        onClick={() => handleChange('backgroundImage', url)}
+                        onClick={() => handleChange('backgroundImage', url.replace('w=800', 'w=1920'))}
                         className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity"
                       >
                         <img src={url} alt="Preset" className="w-full h-full object-cover" />
-                        {settings.backgroundImage === url && (
-                          <div className="absolute inset-0 border-2 border-blue-500 rounded-lg" />
+                        {settings.backgroundImage === url.replace('w=800', 'w=1920') && (
+                          <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
                         )}
                       </button>
                     ))}
                   </div>
                 </div>
-              </div>
-
-              {/* Opacity */}
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">面板透明度 (Overlay Opacity)</label>
-                  <span className="text-xs text-blue-300 font-mono">{settings.opacity.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="0.9"
-                  step="0.01"
-                  value={settings.opacity}
-                  onChange={(e) => handleChange('opacity', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
-                />
-              </div>
-
-              {/* Blur */}
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">模糊度 (Blur)</label>
-                  <span className="text-xs text-blue-300 font-mono">{settings.blur}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="50"
-                  step="1"
-                  value={settings.blur}
-                  onChange={(e) => handleChange('blur', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
-                />
-              </div>
-
-              {/* Saturation */}
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">饱和度 (Saturation)</label>
-                  <span className="text-xs text-blue-300 font-mono">{settings.saturation}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="300"
-                  step="10"
-                  value={settings.saturation}
-                  onChange={(e) => handleChange('saturation', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
-                />
-              </div>
-
-              {/* Distortion Scale */}
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">扭曲强度 (Distortion)</label>
-                  <span className="text-xs text-blue-300 font-mono">{settings.distortionScale}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={settings.distortionScale}
-                  onChange={(e) => handleChange('distortionScale', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
-                />
-              </div>
-
-              {/* Distortion Frequency */}
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-white/80">纹理密度 (Frequency)</label>
-                  <span className="text-xs text-blue-300 font-mono">{settings.distortionFrequency}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.001"
-                  max="0.1"
-                  step="0.001"
-                  value={settings.distortionFrequency}
-                  onChange={(e) => handleChange('distortionFrequency', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
-                />
               </div>
             </div>
           )}
@@ -538,7 +591,7 @@ export function SettingsModal({
             <div className="space-y-6">
               <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                 <h3 className="text-white font-bold mb-2 flex items-center gap-2">
-                  <Database className="w-4 h-4 text-blue-400" /> 数据导入
+                  <Database className="w-4 h-4 text-pink-400" /> 数据导入
                 </h3>
                 <p className="text-xs text-white/50 mb-4 leading-relaxed">
                   导入预设的词汇书或测试数据。这将同时生成嵌入向量和知识图谱关联，过程可能需要几分钟。
@@ -552,11 +605,11 @@ export function SettingsModal({
                     </div>
                     <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-blue-500 transition-all duration-300"
+                        className="h-full bg-pink-500 transition-all duration-300"
                         style={{ width: `${(importProgress.current / (importProgress.total || 100)) * 100}%` }}
                       />
                     </div>
-                    <div className="flex items-center justify-center gap-2 text-xs text-blue-300 animate-pulse">
+                    <div className="flex items-center justify-center gap-2 text-xs text-pink-300 animate-pulse">
                       <Loader2 className="w-3 h-3 animate-spin" />
                       <span>正在计算语义关联...</span>
                     </div>
@@ -565,7 +618,7 @@ export function SettingsModal({
                   <div className="space-y-3">
                     <button
                       onClick={handleImport}
-                      className="w-full py-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-200 font-bold transition-all active:scale-95"
+                      className="w-full py-3 rounded-xl bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/30 text-pink-200 font-bold transition-all active:scale-95"
                     >
                       导入100测试词 (快速演示)
                     </button>
@@ -600,7 +653,7 @@ export function SettingsModal({
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <label className="text-sm font-medium text-white/80">相似度阈值 (Similarity Threshold)</label>
-                  <span className="text-xs text-blue-300 font-mono">{embeddingConfig.threshold.toFixed(2)}</span>
+                  <span className="text-xs text-pink-300 font-mono">{embeddingConfig.threshold.toFixed(2)}</span>
                 </div>
                 <input
                   type="range"
@@ -609,7 +662,7 @@ export function SettingsModal({
                   step="0.05"
                   value={embeddingConfig.threshold}
                   onChange={(e) => handleEmbeddingChange('threshold', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
                 />
                 <p className="text-xs text-white/40">
                   阈值越高，构建的联系越精准，但可能导致孤立单词增多；阈值越低，联系越丰富，但可能出现牵强的关联。建议范围 0.5 - 0.7。
@@ -620,7 +673,7 @@ export function SettingsModal({
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <label className="text-sm font-medium text-white/80">最小连接数 (Min Connections)</label>
-                  <span className="text-xs text-blue-300 font-mono">{embeddingConfig.minConnections}</span>
+                  <span className="text-xs text-pink-300 font-mono">{embeddingConfig.minConnections}</span>
                 </div>
                 <input
                   type="range"
@@ -629,7 +682,7 @@ export function SettingsModal({
                   step="1"
                   value={embeddingConfig.minConnections}
                   onChange={(e) => handleEmbeddingChange('minConnections', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
                 />
                 <p className="text-xs text-white/40">
                   强制每个单词至少拥有的连接数量。设为 0 允许孤立单词存在。
@@ -640,7 +693,7 @@ export function SettingsModal({
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <label className="text-sm font-medium text-white/80">最大连接数 (Max Connections)</label>
-                  <span className="text-xs text-blue-300 font-mono">{embeddingConfig.maxConnections}</span>
+                  <span className="text-xs text-pink-300 font-mono">{embeddingConfig.maxConnections}</span>
                 </div>
                 <input
                   type="range"
@@ -649,7 +702,7 @@ export function SettingsModal({
                   step="1"
                   value={embeddingConfig.maxConnections}
                   onChange={(e) => handleEmbeddingChange('maxConnections', parseFloat(e.target.value))}
-                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-blue-400"
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
                 />
               </div>
             </div>
@@ -698,7 +751,7 @@ export function SettingsModal({
             <div className="space-y-6">
               <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                 <h3 className="text-white font-bold mb-2 flex items-center gap-2">
-                  <Key className="w-4 h-4 text-blue-400" /> DeepSeek API 配置
+                  <Key className="w-4 h-4 text-pink-400" /> DeepSeek API 配置
                 </h3>
                 <p className="text-xs text-white/50 mb-4 leading-relaxed">
                   设置 DeepSeek API Key 以启用 AI 辅助功能（自动生成释义、例句、助记等）。
@@ -711,11 +764,11 @@ export function SettingsModal({
                     value={apiKey || ''}
                     onChange={(e) => onApiKeyChange?.(e.target.value)}
                     placeholder="sk-..."
-                    className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-blue-500/50 transition-all font-mono text-sm"
+                    className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-pink-500/50 transition-all font-mono text-sm"
                   />
                   <p className="text-xs text-white/40">
                     您的 Key 仅存储在本地浏览器中，不会上传到任何服务器。
-                    <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 ml-1">
+                    <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-pink-400 hover:text-pink-300 ml-1">
                       获取 API Key &rarr;
                     </a>
                   </p>
@@ -734,16 +787,16 @@ export function SettingsModal({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-white/10 flex gap-3 bg-black/20">
+        <div className="p-6 border-t border-white/5 flex gap-3 bg-black/20">
           <button
             onClick={onRestoreDefaults}
-            className="flex-1 py-3 rounded-xl border border-white/10 text-white/70 hover:bg-white/5 hover:text-white transition-all flex items-center justify-center gap-2 font-medium"
+            className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-all flex items-center justify-center gap-2 font-medium text-xs"
           >
-            <RotateCcw className="w-4 h-4" /> 恢复默认
+            <RotateCcw className="w-3.5 h-3.5" /> 恢复默认
           </button>
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-blue-500/20"
+            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-pink-500/20 text-sm hover:scale-[1.02] active:scale-[0.98]"
           >
             <Save className="w-4 h-4" /> 完成
           </button>
