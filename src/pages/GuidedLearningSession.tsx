@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject } from 'react-force-graph-2d';
 import * as d3 from 'd3-hierarchy';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
 import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache, forceSyncNow } from '@/lib/data-source';
@@ -19,9 +19,10 @@ import { ReviewControls } from '@/components/ReviewControls';
 import { getReviewPreviews } from '@/lib/fsrs';
 import { FloatingAIChat } from '@/components/FloatingAIChat';
 import { InteractiveMascot, type MascotReaction } from '@/components/InteractiveMascot';
-import { loadMascotConfig } from '@/lib/mascot-config';
+import { loadMascotConfig, saveMascotConfig } from '@/lib/mascot-config';
 import { mascotEventBus } from '@/lib/mascot-event-bus';
 import { getMascotDialogue } from '@/lib/mascot-dialogues';
+import { SettingsModal } from '@/components/SettingsModal'; // [FIXED] Named import if needed, or default check
 
 /**
  * @description 引导式学习会话页面 (Guided Learning Session)
@@ -93,6 +94,15 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [completedNodeIds, setCompletedNodeIds] = useState<Set<string>>(new Set());
     const [sessionStats, setSessionStats] = useState({ correct: 0, total: 0, startTime: 0 });
     const [showReport, setShowReport] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [mascotConfig, setMascotConfig] = useState(() => loadMascotConfig()); // [FIX] 从 localStorage 加载初始配置
+
+
+
+    // Debug: log mascotConfig changes
+    useEffect(() => {
+        console.log('[GuidedLearningSession] mascotConfig state updated:', mascotConfig);
+    }, [mascotConfig]);
     const [showGroupCompletion, setShowGroupCompletion] = useState(false); // [NEW] Pause for group report
     const [isQueueInitialized, setIsQueueInitialized] = useState(false); // [FIX] Prevent race condition on load
 
@@ -158,6 +168,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         }
     }, [apiKey]);
 
+    // [FIX] Prevent duplicate API calls
+    const prefetchingRef = useRef<Set<string>>(new Set());
+    const lastExplainedWordRef = useRef<string | null>(null);
+
     // [NEW] Monitor Queue for Prefetching
     useEffect(() => {
         if (!queue.length || !apiKey) return;
@@ -165,34 +179,48 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         // Prefetch next 4 items
         const itemsToPrefetch = queue.slice(1, 5);
         itemsToPrefetch.forEach(async (item) => {
-            prefetchRelatedWords(item.card.word);
+            const word = item.card.word;
+            // 1. Prefetch Related Words (Graph)
+            prefetchRelatedWords(word);
 
-            if (!item.card.roots) {
+            // 2. Prefetch Roots & Syllables (Enrichment)
+            // Use a unique key for specific enrichment tasks to avoid overlap
+            const rootKey = `root-${word}`;
+            const syllableKey = `syll-${word}`;
+
+            if (!item.card.roots && !prefetchingRef.current.has(rootKey)) {
+                prefetchingRef.current.add(rootKey);
                 try {
-                    const roots = await generateRoots(item.card.word, apiKey);
+                    const roots = await generateRoots(word, apiKey);
                     if (roots && roots.length > 0) {
                         // [FIX] Race Condition: Fetch latest card to avoid overwriting progress
                         const latest = await getCardsByIds([item.card.id]);
                         const baseCard = latest[0] || item.card;
-
                         const updated = { ...baseCard, roots };
                         handleUpdateCard(updated);
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    prefetchingRef.current.delete(rootKey);
+                }
             }
 
-            if (!item.card.syllables) {
+            if (!item.card.syllables && !prefetchingRef.current.has(syllableKey)) {
+                prefetchingRef.current.add(syllableKey);
                 try {
-                    const syllables = await generateSyllables(item.card.word, apiKey);
+                    const syllables = await generateSyllables(word, apiKey);
                     if (syllables) {
-                        // [FIX] Race Condition: Fetch latest card
                         const latest = await getCardsByIds([item.card.id]);
                         const baseCard = latest[0] || item.card;
-
                         const updated = { ...baseCard, syllables };
                         handleUpdateCard(updated);
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    prefetchingRef.current.delete(syllableKey);
+                }
             }
         });
     }, [queue, apiKey, prefetchRelatedWords, currentItem]);
@@ -202,6 +230,21 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         setIsCardFlipped(false);
     }, [currentItem]);
 
+
+    // [Feature I] Auto-Explain in Teacher Mode
+    useEffect(() => {
+        if (isTeacherMode && currentItem?.card) {
+            const word = currentItem.card.word;
+            // Only explain if we haven't explained this word yet (or if explicitly re-triggered, but this effect is auto)
+            if (lastExplainedWordRef.current !== word) {
+                lastExplainedWordRef.current = word;
+                mascotEventBus.generateDialogue('explain', {
+                    userStats: { word },
+                    persona: mascotConfig.persona
+                });
+            }
+        }
+    }, [currentItem, isTeacherMode, mascotConfig.persona]);
 
     // [NEW] Real-time Example Generation Effect
     useEffect(() => {
@@ -1662,6 +1705,20 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         }
     }, [currentItem]);
 
+    // [Feature I] Hesitation Detection
+    useEffect(() => {
+        if (!currentItem || choiceResult || testResult) return;
+
+        // If user takes > 8 seconds, mascot gets curious/thinking
+        const timer = setTimeout(() => {
+            if (!choiceResult && !testResult) { // Double check
+                mascotEventBus.emitLearningEvent('hesitation');
+            }
+        }, 8000); // 8 seconds threshold
+
+        return () => clearTimeout(timer);
+    }, [currentItem, choiceResult, testResult]);
+
     // [User Request] Auto-submit when length matches
     useEffect(() => {
         if (currentItem?.type === 'test' && inputValue && currentItem.card.word) {
@@ -3055,7 +3112,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                                 <InteractiveMascot
                                                     size={120}
                                                     reaction="combo"
-                                                    skinId={loadMascotConfig().skinId}
+                                                    skinId={mascotConfig.skinId}
+                                                    variant={mascotConfig.variant || 'classic'}
                                                 />
                                             </div>
 
@@ -3101,6 +3159,26 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                                 })}
                                             </div>
                                         </div>
+
+                                        {/* 吉祥物 (Draggable) */}
+                                        <motion.div
+                                            drag
+                                            dragMomentum={false}
+                                            whileDrag={{ scale: 1.1, cursor: 'grabbing' }}
+                                            className="absolute top-4 right-4 z-50 cursor-grab active:cursor-grabbing"
+                                        >
+                                            <InteractiveMascot
+                                                key={`mascot-${mascotConfig.variant}-${mascotConfig.skinId}`}
+                                                reaction={mascotReaction}
+                                                size={100}
+                                                variant={mascotConfig.variant || 'classic'}
+                                                onPoke={() => setMascotReaction('poked')}
+                                                isHovered={false}
+                                                isTeacher={isTeacherMode}
+                                                explanation={undefined} // Pass undefined or remove if key is optional
+                                                isDragging={false}
+                                            />
+                                        </motion.div>
 
                                         <button
                                             onClick={() => {
@@ -3307,6 +3385,26 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     currentWord={currentItem?.card?.word}
                     currentMeaning={currentItem?.card?.meaning}
                     mascotReaction={mascotReaction}
+                    skinId={mascotConfig.skinId}
+                    variant={mascotConfig.variant || 'classic'}
+                    onMascotClick={() => {
+                        // [User Request] Click trigger Explain Mode (Toggle)
+                        const newMode = !isTeacherMode;
+                        setIsTeacherMode(newMode);
+
+                        if (newMode) {
+                            // Turned ON -> Trigger explanation
+                            if (currentItem?.card) {
+                                mascotEventBus.generateDialogue('explain', {
+                                    userStats: { word: currentItem.card.word },
+                                    persona: mascotConfig.persona
+                                });
+                            }
+                        } else {
+                            // Turned OFF -> Silence
+                            mascotEventBus.say('', 'idle', 0);
+                        }
+                    }}
                     onInsertToNotes={(text) => {
                         if (currentItem?.card && onUpdateCard) {
                             const newNotes = currentItem.card.notes
@@ -3325,9 +3423,47 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             onUpdateCard(updatedCard);
                         }
                     }}
-                    // [Feature I] Direct State Sync for Teacher Mode
                     isTeacher={isTeacherMode}
                 />
+
+                {/* Settings Button (Top Left next to Back) */}
+                <div className="absolute top-4 left-16 z-50">
+                    <button
+                        onClick={() => setShowSettings(true)}
+                        className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all border border-white/10"
+                    >
+                        <SettingsIcon className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* Settings Modal */}
+                {showSettings && (
+                    <SettingsModal
+                        isOpen={showSettings}
+                        onClose={() => {
+                            console.log('[GuidedLearningSession] Settings closing, current mascotConfig:', mascotConfig);
+                            setShowSettings(false);
+                            // [REMOVED] Don't reload from localStorage here - it's already synced!
+                            // The onMascotConfigChange handler already updates state and saves to localStorage
+                        }}
+                        settings={{ opacity: 0.03, blur: 20, saturation: 180, distortionScale: 15, distortionFrequency: 0.01, backgroundImage: '' }}
+                        onSettingsChange={() => { }} // Not used in this context
+                        onRestoreDefaults={() => { }} // Not used in this context
+                        apiKey={apiKey}
+                        mascotConfig={mascotConfig}
+                        onMascotConfigChange={(newConfig: any) => {
+                            console.log('[GuidedLearningSession] onMascotConfigChange called with:', newConfig);
+                            // [FIX] 使用函数式更新,避免闭包问题
+                            setMascotConfig((prevConfig) => {
+                                const updated = { ...prevConfig, ...newConfig };
+                                console.log('[GuidedLearningSession] Updated config:', updated);
+                                saveMascotConfig(updated);
+                                console.log('[GuidedLearningSession] Config saved to localStorage');
+                                return updated;
+                            });
+                        }}
+                    />
+                )}
             </div>
         </div>
     );

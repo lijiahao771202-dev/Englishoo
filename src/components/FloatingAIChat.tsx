@@ -49,10 +49,14 @@ interface FloatingAIChatProps {
     };
     /** 吉祥物皮肤 ID */
     skinId?: string;
+    /** 吉祥物变体 */
+    variant?: 'classic' | 'sphere';
     /** 是否初始打开 */
     initiallyOpen?: boolean;
     /** [Feature I] 是否处于老师模式 */
     isTeacher?: boolean;
+    /** [NEW] 自定义点击事件 (Override default toggle) */
+    onMascotClick?: () => void;
 }
 
 import ReactMarkdown from 'react-markdown';
@@ -155,14 +159,17 @@ export function FloatingAIChat({
     onInsertToNotes,
     contextData,
     skinId,
-    initiallyOpen = false,
-    isTeacher: isTeacherProp
+    variant = 'classic',
+    initiallyOpen = false, // [Fix] Only one declaration
+    onMascotClick,
+    isTeacher: isTeacherProp = false
 }: FloatingAIChatProps) {
     useEffect(() => {
         console.log('[FloatingAIChat] Mounted');
     }, []);
 
     const explanationCache = useRef<Map<string, string>>(new Map());
+    const abortControllerRef = useRef<AbortController | null>(null); // [Fix] API Cancellation
 
     const [isOpen, setIsOpen] = useState(initiallyOpen);
     const [isDragging, setIsDragging] = useState(false); // [Performance] 优化拖拽性能
@@ -221,7 +228,41 @@ export function FloatingAIChat({
         }
     }, [isTeacherProp]);
 
-    // Keep ref in sync with state if state changes via other means (e.g. event bus)
+    // [NEW] Listen for GENERATE_DIALOGUE events
+    useEffect(() => {
+        const unsubscribe = mascotEventBus.subscribe(async (event) => {
+            if (event.type === 'GENERATE_DIALOGUE' && event.text && apiKey) {
+                // Determine scenario
+                const scenario = event.text as any;
+                const context = event.context;
+
+                // Show thinking state
+                setLocalReaction('thinking');
+
+                try {
+                    // Import dynamically to avoid circular dependencies if any (though usually fine here)
+                    const { generateMascotDialogue } = await import('@/lib/deepseek');
+                    const response = await generateMascotDialogue(scenario, context, apiKey);
+
+                    if (response) {
+                        // Speak it out
+                        // Response is a string
+                        mascotEventBus.say(response, 'happy', 6000); // 6s duration standard for explanation
+                    } else {
+                        setLocalReaction('idle');
+                    }
+                } catch (e) {
+                    console.error("Failed to generate dialogue", e);
+                    setLocalReaction('confused');
+                    setTimeout(() => setLocalReaction('idle'), 2000);
+                }
+            } else if (event.type === 'SAY' && event.text === '' && event.duration === 0) {
+                // [Fix] Handle manual stop/clear
+                setLocalReaction('idle');
+            }
+        });
+        return unsubscribe;
+    }, [apiKey]);
     useEffect(() => {
         isTeacherRef.current = isTeacher;
     }, [isTeacher]);
@@ -413,11 +454,32 @@ export function FloatingAIChat({
                 if (event.text) setCustomBubbleText(event.text);
                 if (event.reaction) setLocalReaction(event.reaction);
 
+                // [Fix] 如果 text 为空字符串，表示手动停止/关闭
+                if (event.text === "") {
+                    setCustomBubbleText("");
+                    setExplanationText(""); // [Critical Fix] allow removing blackboard
+                    // Also stop streaming if any
+                    setStreamingContent("");
+                }
+
+                if (event.text === "") {
+                    setCustomBubbleText("");
+                    setExplanationText(""); // [Critical Fix] allow removing blackboard
+                    // Abort pending request if any
+                    if (abortControllerRef.current) {
+                        abortControllerRef.current.abort();
+                        abortControllerRef.current = null;
+                        setIsLoading(false);
+                    }
+                    // Also stop streaming if any
+                    setStreamingContent("");
+                }
+
                 // 自动清除文字
                 if (event.duration && event.duration > 0) {
                     setTimeout(() => {
                         setCustomBubbleText("");
-                        setLocalReaction('idle');
+                        if (!explanationText) setLocalReaction('idle'); // Only idle if not explaining
                     }, event.duration);
                 }
             } else if (event.type === 'REACT') {
@@ -434,6 +496,11 @@ export function FloatingAIChat({
                 // [Visual Optimization] 关闭时立即收起讲解气泡
                 if (!isTeacherMode) {
                     setExplanationText(undefined);
+                    if (abortControllerRef.current) {
+                        abortControllerRef.current.abort();
+                        abortControllerRef.current = null;
+                        setIsLoading(false);
+                    }
                     if (localReaction === 'thinking' || localReaction === 'focused') {
                         setLocalReaction('idle');
                     }
@@ -456,19 +523,7 @@ export function FloatingAIChat({
                     fetchExplanation(word, contextFn);
                 }
             } else if (event.type === 'PREFETCH_EXPLANATION') {
-                // [Optimization] Disable prefetch as requested by user
-                /* 
-                if (event.text && isTeacherRef.current) {
-                    // [Performance] 预加载讲解
-                    const word = event.text;
-                    if (explanationCache.current.has(word)) return; // 已缓存
-
-                    console.log('[Performance] Prefetching explanation for:', word);
-                    const contextFn = event.context || {};
-                    // 静默获取，只存缓存
-                    fetchExplanation(word, contextFn, true);
-                }
-                */
+                // Removed
             } else if (event.type === 'REFINE_EXPLANATION') {
                 if (event.text && isTeacherRef.current) {
                     const word = event.text;
@@ -482,6 +537,13 @@ export function FloatingAIChat({
 
         // 定义 fetchExplanation 助手函数
         async function fetchExplanation(targetWord: string, ctx: any, silent: boolean = false) {
+            // Cancel previous request
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+            const controller = new AbortController();
+            abortControllerRef.current = controller;
+
             setIsLoading(true);
             setExplanationText(""); // Clear previous
 
@@ -558,6 +620,7 @@ export function FloatingAIChat({
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${apiKey}`
                     },
+                    signal: controller.signal, // [Fix] Attach signal
                     body: JSON.stringify({
                         model: 'deepseek-chat',
                         messages: [
@@ -618,13 +681,26 @@ export function FloatingAIChat({
                     explanationCache.current.set(targetWord, accumulatedText);
                     console.log(`[Performance] Cached explanation for: ${targetWord}`);
                 }
+                if (!silent) setLocalReaction('idle');
+            } catch (error: any) {
+                // [Fix] Silently ignore abort errors (user cancellation)
+                if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+                    console.log('[TeacherMode] Request aborted by user');
+                    if (!silent) {
+                        setExplanationText(""); // Ensure it's cleared
+                        setLocalReaction('idle');
+                    }
+                    return;
+                }
 
-            } catch (error) {
-                console.error('[TeacherMode] Error:', error);
+                console.error('[TeacherMode] Explanation Error:', error);
                 if (!silent) {
-                    setExplanationText(`### 😵‍💫 哎呀，老师卡壳了\n\n网络有点小问题，请检查 API Key 或网络连接。\n\n错误信息: ${error instanceof Error ? error.message : String(error)}`);
+                    setExplanationText(`### 😖 哎呀，老师卡壳了\n\n网络有点小问题，请检查 API Key 或网络连接。\n\n错误信息: ${error.message || 'Unknown error'} `);
                     setLocalReaction('dizzy');
                 }
+            } finally {
+                setIsLoading(false);
+                abortControllerRef.current = null;
             }
         }
 
@@ -641,15 +717,15 @@ export function FloatingAIChat({
         }
     }, [mascotReaction]);
 
-    // 30s 无操作 → 打瞌睡
-    useEffect(() => {
-        const checkIdle = setInterval(() => {
-            if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle') {
-                setLocalReaction('sleepy');
-            }
-        }, 5000);
-        return () => clearInterval(checkIdle);
-    }, [localReaction]);
+    // 30s 无操作 → 打瞌睡 - [REMOVED] 用户要求保持清醒
+    // useEffect(() => {
+    //     const checkIdle = setInterval(() => {
+    //         if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle') {
+    //             setLocalReaction('sleepy');
+    //         }
+    //     }, 5000);
+    //     return () => clearInterval(checkIdle);
+    // }, [localReaction]);
 
     // 处理戳一戳
     const handlePoke = () => {
@@ -663,7 +739,7 @@ export function FloatingAIChat({
     const handleMouseEnter = () => {
         setIsHovered(true);
         lastActivityRef.current = Date.now();
-        if (localReaction === 'idle' || localReaction === 'sleepy') {
+        if (localReaction === 'idle') {
             setLocalReaction('shy');
         }
     };
@@ -689,16 +765,16 @@ export function FloatingAIChat({
     //     return () => window.removeEventListener('tts-state-change', handleTTS);
     // }, []);
 
-    // 闲置检测 (Idle Timeout)
-    useEffect(() => {
-        const checkIdle = () => {
-            if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle' && !isOpen) {
-                setLocalReaction('sleepy');
-            }
-        };
-        const timer = setInterval(checkIdle, 10000); // Check every 10s
-        return () => clearInterval(timer);
-    }, [localReaction, isOpen]);
+    // 闲置检测 (Idle Timeout) - [REMOVED]
+    // useEffect(() => {
+    //     const checkIdle = () => {
+    //         if (Date.now() - lastActivityRef.current > 30000 && localReaction === 'idle' && !isOpen) {
+    //             setLocalReaction('sleepy');
+    //         }
+    //     };
+    //     const timer = setInterval(checkIdle, 10000); // Check every 10s
+    //     return () => clearInterval(timer);
+    // }, [localReaction, isOpen]);
 
     return (
         <>
@@ -726,8 +802,19 @@ export function FloatingAIChat({
                     }, 200);
                 }}
 
-                onClick={() => {
+                onClick={(e) => {
+                    // [Fix] Prevent click propagation if nested interactive elements are clicked
+                    e.stopPropagation();
+
                     if (isDraggingRef.current) return; // [Fix] 如果是拖拽操作，拦截点击
+
+                    // [User Request] Custom Mascot Click Handler with Toggle
+                    if (onMascotClick) {
+                        // [Fix] Always delegate to parent to handle toggle logic
+                        // (Parent handles turning ON or OFF)
+                        onMascotClick();
+                        return;
+                    }
 
                     // [Interaction] Teacher Mode: Toggle Blackboard
                     if (isTeacher && explanationText) {
@@ -735,10 +822,12 @@ export function FloatingAIChat({
                         return;
                     }
 
+                    // [User Request] 点击直接展开对话框
                     if (!isOpen) {
-                        handlePoke(); // 戳一戳效果
-                        setTimeout(() => setIsOpen(true), 300); // 延迟打开
+                        handlePoke(); // 触发一下可爱的表情
+                        setIsOpen(true); // 立即打开
                     } else {
+                        // 如果已经打开，再次点击则关闭 (Toggle)
                         setIsOpen(false);
                     }
                 }}
@@ -769,6 +858,7 @@ export function FloatingAIChat({
                                 size={60}
                                 isHovered={isHovered}
                                 skinId={skinId}
+                                variant={variant}
                                 customBubbleText={customBubbleText}
                                 isTeacher={isTeacher}
                                 explanation={isExplanationVisible ? explanationText : undefined}
@@ -818,7 +908,7 @@ export function FloatingAIChat({
                                     </span>
                                 </div>
                                 <div className="text-white/40 text-xs">
-                                    {currentWord ? `正在学习: ${currentWord}` : modeConfig.description}
+                                    {currentWord ? `正在学习: ${currentWord} ` : modeConfig.description}
                                 </div>
                             </div>
                             <div className="text-white/30 text-xs">Tab 切换</div>

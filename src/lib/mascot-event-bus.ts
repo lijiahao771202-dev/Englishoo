@@ -1,6 +1,6 @@
 import type { MascotReaction } from '@/components/InteractiveMascot';
 
-type MascotEventType = 'SAY' | 'REACT' | 'COMBO' | 'SET_TEACHER_MODE' | 'EXPLAIN' | 'LEARN_WORD' | 'PREFETCH_EXPLANATION' | 'REFINE_EXPLANATION';
+type MascotEventType = 'SAY' | 'REACT' | 'COMBO' | 'SET_TEACHER_MODE' | 'EXPLAIN' | 'LEARN_WORD' | 'PREFETCH_EXPLANATION' | 'REFINE_EXPLANATION' | 'LEARNING_EVENT' | 'GENERATE_DIALOGUE';
 
 export interface MascotEventPayload {
     type: MascotEventType;
@@ -68,6 +68,19 @@ class MascotEventBus {
     // [Feature I] 追问/深化讲解
     public refineExplanation(word: string, type: 'simplification' | 'example' | 'mnemonic') {
         this.emit({ type: 'REFINE_EXPLANATION', text: word, context: { refineType: type } });
+    }
+
+    // [Feature I] 学习事件 (New for Sphere 5.0)
+    public emitLearningEvent(type: 'correct' | 'wrong' | 'streak' | 'hesitation', data?: any) {
+        this.emit({
+            type: 'LEARNING_EVENT',
+            context: { eventType: type, ...data }
+        });
+    }
+
+    // [Feature I] AI Personality POC (New for Sphere 6.0)
+    public generateDialogue(scenario: 'login' | 'streak' | 'fail' | 'idle' | 'explain', context?: any) {
+        this.emit({ type: 'GENERATE_DIALOGUE', text: scenario, context });
     }
 }
 

@@ -29,7 +29,20 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
         const now = new Date();
         setDateString(now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }));
-    }, []);
+
+        // [Feature] AI Contextual Greeting (Sphere 6.0)
+        // Delay slightly to ensure mascot is ready
+        const timer = setTimeout(() => {
+            import('@/lib/mascot-event-bus').then(({ mascotEventBus }) => {
+                mascotEventBus.generateDialogue('login', {
+                    streak: stats.streak,
+                    timeOfDay: hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
+                });
+            });
+        }, 1500);
+
+        return () => clearTimeout(timer);
+    }, [stats.streak]); // Only re-run if streak changes (usually only on mount)
 
     return (
         <div className="relative w-full mb-12">

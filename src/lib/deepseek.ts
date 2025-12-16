@@ -119,6 +119,41 @@ export async function generateShadowingStory(
   }
 }
 
+// [NEW] Usage Tracking Storage Key
+const USAGE_KEY = 'deepseek_usage_stats';
+
+export interface UsageStats {
+  requestCount: number;
+  estimatedTokens: number;
+  lastReset: number;
+}
+
+export function getUsageStats(): UsageStats {
+  try {
+    const saved = localStorage.getItem(USAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (e) { /* ignore */ }
+  return { requestCount: 0, estimatedTokens: 0, lastReset: Date.now() };
+}
+
+export function resetUsageStats() {
+  localStorage.setItem(USAGE_KEY, JSON.stringify({ requestCount: 0, estimatedTokens: 0, lastReset: Date.now() }));
+}
+
+function trackUsage(inputLength: number, outputLength: number) {
+  const stats = getUsageStats();
+  // 粗略估算：1 中文字符 ~ 1 token, 4 英文字符 ~ 1 token. 
+  // 这里简化估算：(Input + Output) chars * 1.5 (safety margin for metadata)
+  const estimated = Math.ceil((inputLength + outputLength) * 1.3);
+
+  const newStats = {
+    requestCount: stats.requestCount + 1,
+    estimatedTokens: stats.estimatedTokens + estimated,
+    lastReset: stats.lastReset
+  };
+  localStorage.setItem(USAGE_KEY, JSON.stringify(newStats));
+}
+
 export async function enrichWord(word: string, apiKey: string): Promise<EnrichedData> {
   if (!apiKey) {
     throw new Error('API Key is missing');
@@ -176,6 +211,10 @@ export async function enrichWord(word: string, apiKey: string): Promise<Enriched
     );
 
     const content = cleanJson(response.data.choices[0].message.content);
+
+    // [NEW] Track Usage
+    trackUsage(prompt.length, content.length);
+
     return JSON.parse(content);
   } catch (error) {
     console.error('DeepSeek API Error:', error);
@@ -737,6 +776,73 @@ export async function generateMindMap(word: string, apiKey: string): Promise<Enr
   } catch (error) {
     console.error('DeepSeek API Error:', error);
     throw error;
+  }
+}
+
+/**
+ * @description 生成 Mascot 场景化台词 (Sphere 6.0 AI Personality)
+ */
+export async function generateMascotDialogue(
+  context: {
+    scenario: 'login' | 'streak' | 'fail' | 'idle' | 'explain';
+    persona?: 'witty' | 'gentle' | 'strict'; // default: witty
+    userStats?: { streak?: number; timeOfDay?: string; word?: string };
+    history?: string; // 避免重复
+  },
+  apiKey: string
+): Promise<string> {
+  if (!apiKey) throw new Error('API Key is missing');
+
+  const personaPrompt = {
+    witty: "You are a witty, slightly sarcastic, but helpful learning companion. You use emojis freely. You are like a 'cool best friend'.",
+    gentle: "You are a warm, encouraging, and empathetic mentor. You prioritize emotional support. You use soft emojis (✨, 💖).",
+    strict: "You are a highly efficient, no-nonsense drill sergeant. You focus on results and efficiency. You use minimal emojis (💪, 🔥)."
+  };
+
+  const scenarioPrompt = {
+    login: "The user just opened the app. Greet them based on the time of day and their streak.",
+    streak: `The user just got a streak of ${context.userStats?.streak || 3}! Celebrate with them.`,
+    fail: `The user is stuck on the word "${context.userStats?.word}". Encourage them or give a super short mnemonic hint.`,
+    idle: "The user hasn't done anything for a while. gently nudge them to continue.",
+    explain: `Explain the word "${context.userStats?.word}" in a fun, first-person subjective way. NOT a dictionary definition. Like: 'Imagine you are...'`
+  };
+
+  const basePersona = personaPrompt[context.persona || 'witty'];
+  const baseScenario = scenarioPrompt[context.scenario];
+
+  const prompt = `
+    Role: ${basePersona}
+    Task: Say ONE sentence to the user.
+    Context: ${baseScenario}
+    Constraint: 
+    1. Keep it under 20 Chinese characters (for 'explain', under 40).
+    2. Be conversational and natural.
+    3. Output ONLY the raw string. No quotes.
+  `;
+
+  try {
+    const response = await axios.post(
+      API_URL,
+      {
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: prompt }
+        ],
+        stream: false
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('DeepSeek Mascot Dialogue Error:', error);
+    return ""; // Fallback will be handled by caller
   }
 }
 

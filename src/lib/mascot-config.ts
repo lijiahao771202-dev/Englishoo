@@ -94,12 +94,33 @@ export const DEFAULT_MASCOT_NAME = '小英';
 export interface MascotConfig {
     skinId: string;
     name: string;
+    variant: 'classic' | 'sphere'; // [NEW] 支持变体切换
+    scale: number; // 缩放比例
+    eyeTheme: 'default' | 'sleepy' | 'sparkle'; // 眼睛主题
+    enableEyeTracking: boolean; // 启用眼睛追踪
+    enableIdleAnimations: boolean; // 启用空闲动画
+    interactionLevel: 'low' | 'medium' | 'high'; // 互动等级
+    // [Feature] 语音设置
+    voiceId: string;    // 'en-US-GuyNeural' 等
+    voiceSpeed: number; // 0.8 - 1.5
+
+    // [Feature] AI Personality (Sphere 6.0)
+    persona: 'witty' | 'gentle' | 'strict';
 }
 
 // 默认配置
 export const DEFAULT_MASCOT_CONFIG: MascotConfig = {
     skinId: 'pink',
     name: DEFAULT_MASCOT_NAME,
+    variant: 'classic',
+    scale: 1,
+    eyeTheme: 'default',
+    enableEyeTracking: true,
+    enableIdleAnimations: true,
+    interactionLevel: 'high',
+    voiceId: 'en-US-GuyNeural',
+    voiceSpeed: 1.0,
+    persona: 'witty' // Default to "Witty Copilot"
 };
 
 // 从 localStorage 加载配置
@@ -107,10 +128,12 @@ export function loadMascotConfig(): MascotConfig {
     try {
         const saved = localStorage.getItem('mascot_config');
         if (saved) {
-            return { ...DEFAULT_MASCOT_CONFIG, ...JSON.parse(saved) };
+            const parsed = JSON.parse(saved);
+            const result = { ...DEFAULT_MASCOT_CONFIG, ...parsed };
+            return result;
         }
-    } catch (e) {
-        console.error('Failed to load mascot config:', e);
+    } catch (error) {
+        console.error('[loadMascotConfig] Error loading config:', error);
     }
     return DEFAULT_MASCOT_CONFIG;
 }

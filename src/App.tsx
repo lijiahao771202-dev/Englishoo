@@ -970,6 +970,7 @@ function AppContent() {
                     currentView={view}
                     apiKey={apiKey}
                     skinId={mascotConfig.skinId}
+                    variant={mascotConfig.variant || 'classic'}
                     contextData={{
                         cards,
                         dueCount: cards.filter(c => c.state !== 0 && !c.isFamiliar && c.due && new Date(c.due) < new Date()).length,

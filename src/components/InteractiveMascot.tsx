@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { getMascotSkin, loadMascotConfig, type MascotSkin } from '@/lib/mascot-config';
 import { mascotEventBus } from '@/lib/mascot-event-bus';
+import { SphereVisuals } from '@/components/SphereVisuals';
 
 // 扩展情绪类型
 export type MascotReaction = 'idle' | 'happy' | 'thinking' | 'sleepy' | 'sad' | 'combo' | 'shy' | 'poked' | 'confused' | 'listening' | 'dizzy' | 'surprised' | 'love' | 'focused' | 'determined';
@@ -16,6 +17,7 @@ interface InteractiveMascotProps {
     reaction?: MascotReaction;
     size?: number;
     className?: string;
+    variant?: 'classic' | 'sphere'; // [NEW] Mascot Variant
     onPoke?: () => void; // 戳一戳回调
     isHovered?: boolean; // 悬停状态
     skinId?: string; // 皮肤ID
@@ -26,23 +28,23 @@ interface InteractiveMascotProps {
     currentWord?: string; // [Feature I] 当前讲解的单词
 }
 
-// 气泡文字映射 (Legacy Fallback, mostly handled by feature events now)
+// 气泡文字映射（用于普通情绪小气泡）
 const bubbleTextMap: Record<string, string[]> = {
     idle: [],
-    happy: ["Good!", "Great!", "Nice!", "Cool!", "Wow!"],
-    sad: ["没关系~", "再来!", "加油!"],
-    combo: ["连击!", "太棒了!", "🔥 火力全开!"],
-    sleepy: ["Zzz...", "💤"],
-    shy: ["嘿嘿~", "😊"],
-    poked: ["哎呀!", "嘻嘻~", "别戳啦!"],
-    thinking: ["嗯..."],
-    confused: ["???", "诶?", "什么?"],
-    listening: ["🎵", "好听~", "动次打次"],
-    dizzy: ["晕...", "慢点~", "@@"],
-    surprised: ["Woa!", "!!", "😲"],
-    love: ["❤️", "Love u", "嘻嘻"],
-    focused: ["...", "盯..."],
-    determined: ["冲!", "Fight!"]
+    happy: ['😊', '✨', '👍', '💖', '🌟', '😆', '🎉', '😸'],
+    sad: ['😢', '💔', '😔', '🥺', '🌧️', '😿'],
+    combo: ['🔥', '⚡', '🎯', '⭐', '🚀', '💯', '🏆'],
+    sleepy: [], // [REMOVED] No sleepy bubbles
+    shy: ['😳', '☺️', '🙈', '🌸', '⸝⸝>  <⸝⸝'],
+    poked: ['😮', '👋', '😲', '💢', '❓'],
+    thinking: ['🤔', '💭', '🧐', '🧠', '🔍'],
+    confused: ['❓', '🤨', '😵', '🌀', '🦄'],
+    listening: ['🎵', '🎶', '🎧', '👂', '🎤'],
+    dizzy: ['😵', '💫', '🌀', '🤕'],
+    surprised: ['😲', '‼️', '🤯', '😱', '🙀'],
+    love: ['❤️', '💕', '😍', '🥰', '😘', '💌'],
+    focused: ['👀', '🎯', '⚡', '👓', '📝'],
+    determined: ['💪', '🔥', '⚔️', '😤', '🏔️']
 };
 
 // 动画变体 - 完整情绪系统
@@ -156,7 +158,7 @@ const MascotVisuals = React.memo(({ currentSkin, internalReaction, isDragging, i
     };
 
     // 获取嘴巴路径
-    const getMouthPath = () => {
+    const getMouthPath = (): string => {
         switch (internalReaction) {
             case 'happy': case 'combo': return "M75 145 Q100 170 125 145";
             case 'sad': return "M80 155 Q100 140 120 155";
@@ -164,7 +166,15 @@ const MascotVisuals = React.memo(({ currentSkin, internalReaction, isDragging, i
             case 'shy': return "M90 150 Q100 155 110 150";
             case 'poked': return "M85 148 Q100 165 115 148";
             case 'dizzy': return "M90 155 Q100 145 110 155";
-            default: return "M85 148 Q100 158 115 148";
+            case 'idle': return "M85 148 Q100 158 115 148"; // Explicit idle
+            case 'confused': return "M90 150 Q100 150 110 150"; // Explicit confused
+            case 'listening': return "M85 148 Q100 158 115 148"; // Same as idle
+            case 'surprised': return "M100 150 Q100 165 100 150"; // Open mouth
+            case 'love': return "M80 145 Q100 160 120 145"; // Smile
+            case 'focused': return "M85 148 Q100 158 115 148"; // Same as idle
+            case 'thinking': return "M90 150 Q100 150 110 150"; // Straight line
+            case 'determined': return "M85 148 Q100 158 115 148"; // Same as idle
+            default: return "M85 148 Q100 158 115 148"; // Default fallback
         }
     };
 
@@ -375,7 +385,8 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
     isTeacher = false,
     explanation,
     isDragging = false,
-    currentWord
+    currentWord,
+    variant = 'classic' // Default to classic
 }: InteractiveMascotProps) {
     const [eyePosition, setEyePosition] = useState({ x: 0, y: 0 });
     const mascotRef = useRef<HTMLDivElement>(null);
@@ -393,6 +404,11 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
         setInternalReaction(reaction);
     }, [reaction]);
 
+    // [DEBUG] Log variant changes
+    useEffect(() => {
+        console.log('[InteractiveMascot] Variant changed to:', variant);
+    }, [variant]);
+
     // 悬停时变害羞 (优先级较低，被外部状态覆盖)
     useEffect(() => {
         if (isHovered && reaction === 'idle') {
@@ -401,6 +417,44 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
             setInternalReaction('idle');
         }
     }, [isHovered, reaction, internalReaction]);
+
+    // [Feature I] 订阅学习事件 (Learning Loop Integration)
+    useEffect(() => {
+        const unsubscribe = mascotEventBus.subscribe((event) => {
+            if (event.type === 'LEARNING_EVENT' && event.context) {
+                const { eventType, count } = event.context;
+                console.log('[InteractiveMascot] Received learning event:', eventType, count);
+
+                switch (eventType) {
+                    case 'correct':
+                        setInternalReaction('happy');
+                        // 3秒后自动切回 idle (除非有新状态)
+                        setTimeout(() => setInternalReaction(curr => curr === 'happy' ? 'idle' : curr), 3000);
+                        break;
+
+                    case 'wrong':
+                        setInternalReaction('sad');
+                        setTimeout(() => setInternalReaction(curr => curr === 'sad' ? 'idle' : curr), 4000);
+                        break;
+
+                    case 'streak':
+                        // Streak 3+ -> Combo/Excited
+                        if (count >= 3) {
+                            setInternalReaction('combo');
+                            setTimeout(() => setInternalReaction(curr => curr === 'combo' ? 'idle' : curr), 3000);
+                        }
+                        break;
+
+                    case 'hesitation':
+                        // User stuck -> Thinking/Curious
+                        setInternalReaction('thinking');
+                        // 思考状态持续直到有新操作
+                        break;
+                }
+            }
+        });
+        return unsubscribe;
+    }, []);
 
     // 鼠标眼动追踪逻辑 - 性能优化：限制更新频率
     useEffect(() => {
@@ -620,15 +674,23 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
 
                             {/* [Feature I] Integrated Mascot in Blackboard (Top Right) */}
                             <div className="absolute top-2 right-2 w-10 h-10 z-10 pointer-events-none opacity-90">
-                                <MascotVisuals
-                                    currentSkin={currentSkin}
-                                    internalReaction={internalReaction}
-                                    isDragging={false}
-                                    isTeacher={isTeacher}
-                                    eyePosition={eyePosition}
-                                    starPositions={starPositions}
-                                    size={40}
-                                />
+                                {variant === 'sphere' ? (
+                                    <SphereVisuals
+                                        reaction={internalReaction}
+                                        size={40}
+                                        eyePosition={eyePosition}
+                                    />
+                                ) : (
+                                    <MascotVisuals
+                                        currentSkin={currentSkin}
+                                        internalReaction={internalReaction}
+                                        isDragging={false}
+                                        isTeacher={isTeacher}
+                                        eyePosition={eyePosition}
+                                        starPositions={starPositions}
+                                        size={40}
+                                    />
+                                )}
                             </div>
                         </div>
                     </motion.div>
@@ -640,18 +702,22 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
                 {showBubble && bubbleText && !explanation && (
                     <motion.div
                         key="bubble"
-                        className="absolute -top-32 left-0 right-0 mx-auto w-48 z-50 pointer-events-none"
+                        // [FIX] Adjusted position closer (-top-32 -> -top-14) and removed fixed width (w-48 -> w-auto max-w-[200px])
+                        className="absolute -top-14 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-auto max-w-[200px]"
                         initial={{ opacity: 0, scale: 0.3, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.3, y: 10 }}
                         transition={{ type: "spring", stiffness: 400, damping: 25 }}
                     >
-                        <div className="relative bg-white border-2 border-black/80 rounded-2xl px-3 py-1 shadow-[3px_3px_0px_rgba(0,0,0,0.15)]">
+                        <div className="relative bg-white border-2 border-black/80 rounded-2xl px-4 py-2 shadow-[3px_3px_0px_rgba(0,0,0,0.15)] flex items-center justify-center min-w-[40px]">
                             <span className="font-bold text-base text-black whitespace-nowrap">
                                 {bubbleText}
                             </span>
-                            <svg className="absolute -bottom-2.5 left-3 w-3 h-3" viewBox="0 0 20 20">
+                            {/* Adjusted arrow position to be centered relative to the bubble */}
+                            <svg className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-4 h-3" viewBox="0 0 20 15">
                                 <path d="M0 0 L10 15 L20 0 Z" fill="white" stroke="black" strokeWidth="2" />
+                                {/* Cover the border line at the top of the arrow to merge with bubble */}
+                                <path d="M2 0 L18 0" stroke="white" strokeWidth="4" />
                             </svg>
                         </div>
                     </motion.div>
@@ -660,15 +726,26 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
 
             {/* If explanation is NOT visible, render Mascot Central */}
             {!explanation && (
-                <MascotVisuals
-                    currentSkin={currentSkin}
-                    internalReaction={internalReaction}
-                    isDragging={isDragging}
-                    isTeacher={isTeacher}
-                    eyePosition={eyePosition}
-                    starPositions={starPositions}
-                    size={size}
-                />
+                <>
+                    {console.log('[InteractiveMascot] Rendering variant:', variant, 'reaction:', internalReaction)}
+                    {variant === 'sphere' ? (
+                        <SphereVisuals
+                            reaction={internalReaction}
+                            size={size}
+                            eyePosition={eyePosition}
+                        />
+                    ) : (
+                        <MascotVisuals
+                            currentSkin={currentSkin}
+                            internalReaction={internalReaction}
+                            isDragging={isDragging}
+                            isTeacher={isTeacher}
+                            eyePosition={eyePosition}
+                            starPositions={starPositions}
+                            size={size}
+                        />
+                    )}
+                </>
             )}
         </div>
     );
