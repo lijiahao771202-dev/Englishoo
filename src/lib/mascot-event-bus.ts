@@ -1,6 +1,6 @@
 import type { MascotReaction } from '@/components/InteractiveMascot';
 
-type MascotEventType = 'SAY' | 'REACT' | 'COMBO' | 'SET_TEACHER_MODE' | 'EXPLAIN' | 'LEARN_WORD';
+type MascotEventType = 'SAY' | 'REACT' | 'COMBO' | 'SET_TEACHER_MODE' | 'EXPLAIN' | 'LEARN_WORD' | 'PREFETCH_EXPLANATION' | 'REFINE_EXPLANATION';
 
 export interface MascotEventPayload {
     type: MascotEventType;
@@ -58,6 +58,16 @@ class MascotEventBus {
     // [Feature I] 请求讲解新单词
     public requestExplanation(word: string, context?: any) {
         this.emit({ type: 'LEARN_WORD', text: word, context });
+    }
+
+    // [Performance] 预加载讲解
+    public prefetchExplanation(word: string, context?: any) {
+        this.emit({ type: 'PREFETCH_EXPLANATION', text: word, context });
+    }
+
+    // [Feature I] 追问/深化讲解
+    public refineExplanation(word: string, type: 'simplification' | 'example' | 'mnemonic') {
+        this.emit({ type: 'REFINE_EXPLANATION', text: word, context: { refineType: type } });
     }
 }
 

@@ -7,6 +7,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { getMascotSkin, loadMascotConfig, type MascotSkin } from '@/lib/mascot-config';
+import { getAllCards } from '@/lib/data-source'; // [Killer Feature] Knowledge Connect
 import { cn } from '@/lib/utils';
 
 import { InteractiveMascot, type MascotReaction } from '@/components/InteractiveMascot';
@@ -46,6 +49,10 @@ interface FloatingAIChatProps {
     };
     /** 吉祥物皮肤 ID */
     skinId?: string;
+    /** 是否初始打开 */
+    initiallyOpen?: boolean;
+    /** [Feature I] 是否处于老师模式 */
+    isTeacher?: boolean;
 }
 
 import ReactMarkdown from 'react-markdown';
@@ -155,10 +162,41 @@ export function FloatingAIChat({
         console.log('[FloatingAIChat] Mounted');
     }, []);
 
+    const explanationCache = useRef<Map<string, string>>(new Map());
+
     const [isOpen, setIsOpen] = useState(initiallyOpen);
     const [isDragging, setIsDragging] = useState(false); // [Performance] 优化拖拽性能
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
+    const [activeWord, setActiveWord] = useState<string>(""); // Store current word for interaction
+    const [isExplanationVisible, setIsExplanationVisible] = useState(true); // [Interaction] Control blackboard visibility
+
+    // [Personalization] 获取用户画像并保持 Ref 同步 (供 useEffect 内部使用)
+    const { profile } = useUserProfile(undefined);
+    const profileRef = useRef(profile);
+    useEffect(() => {
+        profileRef.current = profile;
+    }, [profile]);
+
+    // [Killer Feature] 已掌握词汇库 (用于知识关联)
+    const knownWordsRef = useRef<string[]>([]);
+    useEffect(() => {
+        const loadKnownWords = async () => {
+            try {
+                const cards = await getAllCards();
+                // 筛选 state > 0 的单词 (Learning or Relearning or Review)
+                const learned = cards.filter(c => c.state > 0).map(c => c.word);
+                // 仅保留最近学习的 500 个单词以控制 Prompt 长度，或者随机采样
+                // 这里简单取最后 500 个 (假设 cards 时间排序)
+                knownWordsRef.current = learned.slice(-500);
+                console.log('[KnowledgeConnect] Loaded known words:', knownWordsRef.current.length);
+            } catch (e) {
+                console.error('Failed to load known words', e);
+            }
+        };
+        loadKnownWords();
+    }, []); // Only fetch on mount (or maybe refresh periodically?)
+
     const [isLoading, setIsLoading] = useState(false);
     const [streamingContent, setStreamingContent] = useState(''); // 流式输出缓冲
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -402,120 +440,193 @@ export function FloatingAIChat({
                 }
             } else if (event.type === 'LEARN_WORD') {
                 if (event.text && isTeacherRef.current) {
-                    // [Feature I] AI 老师实时生成讲解
-                    const word = event.text;
-                    const contextFn = event.context || {};
-
-                    // 检查 API Key
-                    const apiKey = localStorage.getItem('deepseek_api_key');
-                    if (!apiKey) {
-                        setExplanationText(`### 🔑 需要设置 API Key\n\n请点击左下角设置图标，填入 DeepSeek API Key 才能开启 AI 老师讲解哦！`);
-                        setLocalReaction('confused');
+                    // [Performance] 检查缓存
+                    const cached = explanationCache.current.get(event.text);
+                    setActiveWord(event.text); // Set active word
+                    setIsExplanationVisible(true); // [Interaction] Always show when learning new word
+                    if (cached) {
+                        setExplanationText(cached);
+                        setLocalReaction('focused');
                         return;
                     }
 
-                    // 先显示"思考中"状态 (防止普通气泡抢戏)
-                    setExplanationText(`🤖 正在思考如何讲解 **${word}**...`);
-                    setLocalReaction('thinking');
-
-                    // 调用 DeepSeek API
-                    // 注意：实际项目中建议在 EventBus 中处理 API 调用，或抽取为独立 Service
-                    // 为了快速实现，这里直接复用现有的 fetch 逻辑 (但为了代码整洁，我们假设有一个 fetchExplanation helper)
-                    // 由于没有独立的 service 文件，我们在 useEffect 内部定义临时的 async 逻辑
-                    // [Streaming Implementation]
-                    (async () => {
-                        try {
-                            const prompt = `你是我的英语私教。请用生动幽默的方式讲解单词 "${word}"。包含：\n1. 发音提示\n2. 核心含义 (${contextFn.meaning || '自动推断'})\n3. 一个超好记的助记口诀\n4. 一个简短的生活例句。\n请使用 Markdown 格式，保持简短（200字以内）。`;
-
-                            console.log('[TeacherMode] Starting fetch request to DeepSeek...', { word, apiKey: '***' });
-
-                            // Use the same proxy URL as API_URL to avoid CORS
-                            const response = await fetch(API_URL, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${localStorage.getItem('deepseek_api_key') || ''}`
-                                },
-                                body: JSON.stringify({
-                                    model: 'deepseek-chat',
-                                    messages: [
-                                        { role: 'system', content: '你是专业的英语单词记忆教练。风格幽默风趣。' },
-                                        { role: 'user', content: prompt }
-                                    ],
-                                    temperature: 0.7,
-                                    stream: true // Enable streaming
-                                })
-                            });
-
-                            console.log('[TeacherMode] Response received:', response.status, response.statusText);
-
-                            if (!response.ok) {
-                                const errText = await response.text();
-                                console.error('[TeacherMode] Response not OK:', errText);
-                                throw new Error(`Network response was not ok: ${response.status} ${errText}`);
-                            }
-
-                            const reader = response.body?.getReader();
-                            if (!reader) throw new Error('No reader available');
-
-                            let accumulatedText = "";
-                            // setExplanationText(""); // DO NOT clear here, wait for first chunk to replace "Thinking..."
-
-                            // Flag to indicate we haven't received data yet
-                            let firstChunkReceived = false;
-
-                            setLocalReaction('focused');
-
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-
-                                const chunk = new TextDecoder().decode(value);
-                                const lines = chunk.split('\n');
-
-                                for (const line of lines) {
-                                    if (line.startsWith('data: ')) {
-                                        const dataStr = line.slice(6);
-                                        if (dataStr === '[DONE]') break;
-
-                                        try {
-                                            const json = JSON.parse(dataStr);
-                                            const content = json.choices?.[0]?.delta?.content;
-                                            if (content) {
-                                                if (!firstChunkReceived) {
-                                                    accumulatedText = ""; // Clear "Thinking..." on first real data
-                                                    firstChunkReceived = true;
-                                                }
-                                                accumulatedText += content;
-                                                setExplanationText(accumulatedText);
-                                            }
-                                        } catch (e) {
-                                            console.warn('Error parsing stream chunk', e);
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (error) {
-                            console.error('Explanation generation failed:', error);
-                            setExplanationText((prev) => prev ? prev + "\n\n(网络中断)" : `### 😵 网络开小差了\n\n无法获取 **${word}** 的讲解。`);
-                            setLocalReaction('dizzy');
-                        }
-                    })();
+                    // [Feature I] AI 老师实时生成讲解
+                    const word = event.text;
+                    const contextFn = event.context || {};
+                    fetchExplanation(word, contextFn);
                 }
-            } else if (event.type === 'EXPLAIN') {
-                if (event.text) {
-                    // [Feature I] 静态讲解内容可以直接显示
-                    setExplanationText(event.text);
-                    setLocalReaction('focused');
+            } else if (event.type === 'PREFETCH_EXPLANATION') {
+                // [Optimization] Disable prefetch as requested by user
+                /* 
+                if (event.text && isTeacherRef.current) {
+                    // [Performance] 预加载讲解
+                    const word = event.text;
+                    if (explanationCache.current.has(word)) return; // 已缓存
 
-                    // 20秒后自动关闭讲解气泡 (时间延长以阅读长文)
-                    setTimeout(() => {
-                        setExplanationText(undefined);
-                        setLocalReaction('idle');
-                    }, 20000);
+                    console.log('[Performance] Prefetching explanation for:', word);
+                    const contextFn = event.context || {};
+                    // 静默获取，只存缓存
+                    fetchExplanation(word, contextFn, true);
+                }
+                */
+            } else if (event.type === 'REFINE_EXPLANATION') {
+                if (event.text && isTeacherRef.current) {
+                    const word = event.text;
+                    const contextFn = event.context || {};
+                    setActiveWord(word); // Ensure active word is set for refinements
+                    // Force refresh, ignore cache for refinements
+                    fetchExplanation(word, contextFn);
                 }
             }
         };
+
+        // 定义 fetchExplanation 助手函数
+        async function fetchExplanation(targetWord: string, ctx: any, silent: boolean = false) {
+            setIsLoading(true);
+            setExplanationText(""); // Clear previous
+
+            // [Memory Callback] Retrieve User History for this word
+            let memoryContext = "";
+            try {
+                const allCards = await getAllCards();
+                const card = allCards.find((c: any) => c.word.toLowerCase() === targetWord.toLowerCase());
+                if (card) {
+                    // FSRS Logic Injection
+                    if (card.lapses > 0) {
+                        memoryContext += `[History]: The user has forgotten this word ${card.lapses} times. `;
+                        if (card.lapses > 3) memoryContext += "This is a 'Leech' item (hard to remember). Please provide a vivid mnemonic or a very simple analogy. ";
+                    }
+                    if (card.state === 3) { // Relearning
+                        memoryContext += "User is currently relearning this word. Emphasize why they might have forgotten it. ";
+                    }
+                    if (card.state === 0) { // New
+                        memoryContext += "This is a brand new word for the user. Keep the introduction exciting. ";
+                    }
+                }
+            } catch (e) {
+                console.warn("[Memory Callback] Failed to retrieve card history", e);
+            }
+
+            // 检查 API Key
+            const apiKey = localStorage.getItem('deepseek_api_key');
+            if (!apiKey) {
+                if (!silent) {
+                    setExplanationText(`### 🔑 需要设置 API Key\n\n请点击左下角设置图标，填入 DeepSeek API Key 才能开启 AI 老师讲解哦！`);
+                    setLocalReaction('confused');
+                }
+                setIsLoading(false); // Ensure loading state is reset
+                return;
+            }
+
+            // 先显示"思考中"状态 (仅非静默模式)
+            if (!silent) {
+                setExplanationText(`🤖 正在思考如何讲解 **${targetWord}**...`);
+                setLocalReaction('thinking');
+            }
+
+            try {
+                // [Personalization] 构建个性化 Prompt
+                const userProfile = profileRef.current;
+
+                // [Killer Feature] 知识关联 Context
+                const knownWords = knownWordsRef.current;
+                const knowledgeContext = knownWords.length > 0
+                    ? `\n\n[已知词库] 用户已经掌握了以下单词（部分）：${knownWords.join(', ')}。\n如果这些词中有与 "${targetWord}" 构成同义、反义或关联关系的，请**必须**在讲解中明确对比引用（例如："这个词其实就是你学过的 xxx 的升级版..."）。`
+                    : "";
+
+                let personaContext = "";
+                if (userProfile.profession || userProfile.hobbies) {
+                    personaContext = `\n\n[学员画像]\n职业: ${userProfile.profession || '未知'}\n兴趣: ${userProfile.hobbies || '未知'}\n请务必尝试用**${userProfile.profession || '学员熟悉'}**领域的概念或**${userProfile.hobbies}**相关的比喻来解释这个单词，让记忆更深刻。`;
+                }
+
+                let prompt = `你是我的英语私教。请用生动幽默的方式讲解单词 "${targetWord}"。${personaContext}${knowledgeContext}\n\n包含：\n1. 发音提示\n2. 核心含义 (${ctx.meaning || '自动推断'})\n3. 一个超好记的助记口诀\n4. 一个简短的生活例句。\n请使用 Markdown 格式，保持简短（200字以内）。`;
+
+                // [Feature I] Handle Refinements
+                if (ctx.refineType === 'simplification') {
+                    prompt = `用户觉得刚才的讲解太难了。请用**最简单**的语言（像教5岁孩子一样）重新讲解单词 "${targetWord}"。重点放在核心概念理解上，不要用专业术语。保留一个超级简单的例句。`;
+                } else if (ctx.refineType === 'example') {
+                    prompt = `用户想要更多例子。请给出 "${targetWord}" 的 3 个不同场景下的生活例句（中英对照）。并简要说明每个场景的细微差别。`;
+                } else if (ctx.refineType === 'mnemonic') {
+                    prompt = `用户觉得刚才的助记口诀不够好。请为单词 "${targetWord}" 重新想一个**更有创意、更魔性**的助记口诀（谐音梗或联想记忆）。并简单解释记忆逻辑。`;
+                }
+
+                console.log(`[TeacherMode] Starting ${silent ? 'silent ' : ''}fetch request for: ${targetWord}`);
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: 'deepseek-chat',
+                        messages: [
+                            { role: 'system', content: '你是专业的英语单词记忆教练。风格幽默风趣。' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.7,
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) throw new Error(`Network response was not ok: ${response.status}`);
+
+                const reader = response.body?.getReader();
+                if (!reader) throw new Error('No reader available');
+
+                let accumulatedText = "";
+                let firstChunkReceived = false;
+
+                if (!silent) setLocalReaction('focused');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = new TextDecoder().decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.trim() === '') continue;
+                        if (line.trim() === 'data: [DONE]') continue;
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.choices?.[0]?.delta?.content) {
+                                    const content = data.choices[0].delta.content;
+                                    accumulatedText += content;
+
+                                    // 如果不是静默模式，实时更新 UI
+                                    if (!silent) {
+                                        if (!firstChunkReceived) {
+                                            setExplanationText(accumulatedText);
+                                            firstChunkReceived = true;
+                                        } else {
+                                            setExplanationText(prev => (prev === `🤖 正在思考如何讲解 **${targetWord}**...` ? accumulatedText : accumulatedText));
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Error parsing stream chunk', e);
+                            }
+                        }
+                    }
+                }
+
+                // 完成后存入缓存
+                if (accumulatedText) {
+                    explanationCache.current.set(targetWord, accumulatedText);
+                    console.log(`[Performance] Cached explanation for: ${targetWord}`);
+                }
+
+            } catch (error) {
+                console.error('[TeacherMode] Error:', error);
+                if (!silent) {
+                    setExplanationText(`### 😵‍💫 哎呀，老师卡壳了\n\n网络有点小问题，请检查 API Key 或网络连接。\n\n错误信息: ${error instanceof Error ? error.message : String(error)}`);
+                    setLocalReaction('dizzy');
+                }
+            }
+        }
 
         const unsubscribe = mascotEventBus.subscribe(handleMascotEvent);
         return () => unsubscribe();
@@ -597,7 +708,6 @@ export function FloatingAIChat({
                 drag
                 dragMomentum={false}
                 dragTransition={{ power: 0, timeConstant: 0 }} // [Performance] 零动量，松手即停
-                whileHover={{ scale: isDragging ? 1 : 1.05 }}
                 whileTap={{ scale: isDragging ? 1 : 0.95 }}
                 className={cn(
                     "fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full",
@@ -615,13 +725,16 @@ export function FloatingAIChat({
                         isDraggingRef.current = false;
                     }, 200);
                 }}
-                className={cn(
-                    "fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full",
-                    "flex items-center justify-center",
-                    "cursor-pointer overflow-visible"
-                )}
+
                 onClick={() => {
                     if (isDraggingRef.current) return; // [Fix] 如果是拖拽操作，拦截点击
+
+                    // [Interaction] Teacher Mode: Toggle Blackboard
+                    if (isTeacher && explanationText) {
+                        setIsExplanationVisible(!isExplanationVisible);
+                        return;
+                    }
+
                     if (!isOpen) {
                         handlePoke(); // 戳一戳效果
                         setTimeout(() => setIsOpen(true), 300); // 延迟打开
@@ -658,8 +771,9 @@ export function FloatingAIChat({
                                 skinId={skinId}
                                 customBubbleText={customBubbleText}
                                 isTeacher={isTeacher}
-                                explanation={explanationText}
+                                explanation={isExplanationVisible ? explanationText : undefined}
                                 isDragging={isDragging}
+                                currentWord={activeWord}
                             />
                         </motion.div>
                     )}
@@ -746,7 +860,7 @@ export function FloatingAIChat({
                                                 🤖
                                             </div>
                                             <div className="max-w-[80%] rounded-2xl shadow-md overflow-hidden bg-white/10 backdrop-blur-sm border border-white/10 text-white/95 rounded-bl-sm">
-                                                <div className="px-3.5 py-2.5 text-sm prose prose-invert prose-sm max-w-none">
+                                                <div className="px-3.5 py-2.5 text-sm prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 break-words leading-relaxed prose-strong:text-yellow-600 prose-blockquote:not-italic prose-blockquote:font-normal prose-blockquote:text-gray-600 prose-blockquote:bg-yellow-50/50 prose-blockquote:border-l-4 prose-blockquote:border-yellow-400 prose-blockquote:py-2 prose-blockquote:px-3 prose-blockquote:rounded-r-lg">
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
                                                     <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-0.5 align-middle" />
                                                 </div>

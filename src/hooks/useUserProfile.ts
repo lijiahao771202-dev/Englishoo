@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 export interface UserProfile {
     nickname: string;
     avatarId: string;
+    profession?: string;
+    hobbies?: string;
 }
 
 const STORAGE_KEY = 'user_profile_data';
@@ -30,7 +32,9 @@ export function useUserProfile(email: string | undefined) {
                 // Ensure defaults
                 return {
                     nickname: parsed.nickname || defaultNickname,
-                    avatarId: parsed.avatarId || 'bear'
+                    avatarId: parsed.avatarId || 'bear',
+                    profession: parsed.profession || '',
+                    hobbies: parsed.hobbies || ''
                 };
             }
         } catch (e) {
@@ -38,7 +42,9 @@ export function useUserProfile(email: string | undefined) {
         }
         return {
             nickname: defaultNickname,
-            avatarId: 'bear'
+            avatarId: 'bear',
+            profession: '',
+            hobbies: ''
         };
     });
 

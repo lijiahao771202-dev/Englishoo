@@ -64,6 +64,7 @@ interface FlashcardProps {
   onSemanticNeighborHover?: (word: string | null) => void;
   onPositionChange?: (data: { point: { x: number; y: number }; transform: { x: number; y: number } }) => void;
   initialPosition?: { x: number; y: number };
+  isSpotlight?: boolean;
 }
 
 /**
@@ -98,7 +99,8 @@ export function Flashcard({
   onSemanticNeighborClick,
   onSemanticNeighborHover,
   onPositionChange,
-  initialPosition
+  initialPosition,
+  isSpotlight = false
 }: FlashcardProps) {
   const [internalRevealed, setInternalRevealed] = useState(false);
   const [resizeInProgress, setResizeInProgress] = useState(false);
@@ -490,7 +492,8 @@ export function Flashcard({
     >
       <div className={cn(
         "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-pink-200/20 bg-gradient-to-br from-white/10 to-pink-500/5 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500",
-        "hover:shadow-[0_12px_40px_rgba(244,114,182,0.1)] hover:border-pink-200/30"
+        "hover:shadow-[0_12px_40px_rgba(244,114,182,0.1)] hover:border-pink-200/30",
+        isSpotlight && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
       )}>
 
         {/* Ambient Light Effects - Pink/Rose Theme */}
@@ -786,7 +789,7 @@ export function Flashcard({
                 >
                   释义
                   {activeTab === 'meaning' && (
-                    <motion.div layoutId="activeTab" className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-400/80 rounded-full blur-[1px]" />
+                    <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-400/80 rounded-full blur-[1px]" />
                   )}
                 </button>
 

@@ -14,6 +14,8 @@ interface UserProfileSettingsModalProps {
 export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserProfileSettingsModalProps) {
     const { profile, updateProfile } = useUserProfile(userEmail);
     const [editNickname, setEditNickname] = useState(profile.nickname);
+    const [editProfession, setEditProfession] = useState(profile.profession || '');
+    const [editHobbies, setEditHobbies] = useState(profile.hobbies || '');
     const [selectedAvatar, setSelectedAvatar] = useState(profile.avatarId);
 
     // Stats State
@@ -28,6 +30,8 @@ export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserPro
     useEffect(() => {
         if (isOpen) {
             setEditNickname(profile.nickname);
+            setEditProfession(profile.profession || '');
+            setEditHobbies(profile.hobbies || '');
             setSelectedAvatar(profile.avatarId);
             loadStats();
         }
@@ -70,6 +74,8 @@ export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserPro
     const handleSave = () => {
         updateProfile({
             nickname: editNickname,
+            profession: editProfession,
+            hobbies: editHobbies,
             avatarId: selectedAvatar
         });
         onClose();
@@ -167,6 +173,34 @@ export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserPro
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all font-medium"
                                 placeholder="输入你的昵称..."
                             />
+                        </section>
+
+                        {/* 2.5 Personalization Profile */}
+                        <section>
+                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider mb-3 block">个性化档案</label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs text-white/60 mb-1.5 block">职业 / 身份</label>
+                                    <input
+                                        value={editProfession}
+                                        onChange={(e) => setEditProfession(e.target.value)}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all font-medium"
+                                        placeholder="例如: 程序员, 学生..."
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-white/60 mb-1.5 block">兴趣爱好</label>
+                                    <input
+                                        value={editHobbies}
+                                        onChange={(e) => setEditHobbies(e.target.value)}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all font-medium"
+                                        placeholder="例如: 足球, 绘画..."
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-white/30 mt-2">
+                                * 填写后，AI 老师会尝试用您熟悉的领域来打比方讲解单词。
+                            </p>
                         </section>
 
                         {/* 3. Achievements (Mock for now, can be real later) */}

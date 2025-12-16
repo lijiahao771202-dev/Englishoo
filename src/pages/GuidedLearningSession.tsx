@@ -1728,6 +1728,26 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         }
     }, [queue, phase, graphData, sessionGroups, activeGroupIndex, completedNodeIds, connectionQueue.length]);
 
+    // [Feature I] Teacher Mode Prefetch (Next 3 items)
+    useEffect(() => {
+        if (!isTeacherMode || !currentItem) return;
+
+        const currentIndex = queue.findIndex(item => item.id === currentItem.id);
+        if (currentIndex !== -1) {
+            // Prefetch next 3 items
+            for (let i = 1; i <= 3; i++) {
+                if (currentIndex + i < queue.length) {
+                    const nextItem = queue[currentIndex + i];
+                    if (nextItem.card) {
+                        const context = nextItem.type === 'choice' ? { meaning: 'Quiz Mode' } :
+                            nextItem.type === 'test' ? { meaning: 'Spelling Test' } : {};
+                        mascotEventBus.prefetchExplanation(nextItem.card.word, context);
+                    }
+                }
+            }
+        }
+    }, [currentItem, isTeacherMode, queue]);
+
     const handleNextConnection = () => {
         if (currentConnectionIndex < connectionQueue.length - 1) {
             setCurrentConnectionIndex(prev => prev + 1);
@@ -2288,7 +2308,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             }).filter(Boolean) as WordCard[];
 
             return (
-                <div className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000">
+                <div className={cn(
+                    "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 transition-all duration-500",
+                    isTeacherMode && "z-50"
+                )}>
                     <Flashcard
                         key={`learn-${currentItem.card.id}`}
                         card={currentItem.card}
@@ -2366,6 +2389,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             await handleUpdateCard(u);
                             return u;
                         }}
+                        isSpotlight={isTeacherMode}
                     />
 
                     {/* FSRS Controls (Review Mode Only) */}
@@ -2398,9 +2422,15 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
                     }}
                     style={{ x: cardPosition?.x, y: cardPosition?.y }}
-                    className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
+                    className={cn(
+                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab transition-all duration-500",
+                        isTeacherMode && "z-50"
+                    )}
                 >
-                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30">
+                    <div className={cn(
+                        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
+                        isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                    )}>
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2486,9 +2516,15 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
                     }}
                     style={{ x: cardPosition?.x, y: cardPosition?.y }}
-                    className="w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab"
+                    className={cn(
+                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab transition-all duration-500",
+                        isTeacherMode && "z-50"
+                    )}
                 >
-                    <div className="relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30">
+                    <div className={cn(
+                        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
+                        isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                    )}>
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2658,6 +2694,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 <div className="absolute inset-0 backdrop-blur-md bg-black/30 z-0 transition-all duration-500" />
             )}
 
+            {/* [Feature I] Spotlight Overlay 聚光灯遮罩 */}
+            <div
+                className={cn(
+                    "fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] transition-all duration-700 pointer-events-none",
+                    isTeacherMode ? "opacity-100" : "opacity-0"
+                )}
+            />
+
             {/* Header - Glass Style */}
             <header className="h-16 border-b border-white/10 flex items-center px-6 bg-white/5 backdrop-blur-xl z-10">
                 <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-4">
@@ -2678,7 +2722,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             const newValue = !isTeacherMode;
                             setIsTeacherMode(newValue);
                             mascotEventBus.setTeacherMode(newValue);
-                            mascotEventBus.say(newValue ? "老师模式已开启！" : "老师模式已关闭", newValue ? "happy" : "slight_smile");
+                            mascotEventBus.say(newValue ? "老师模式已开启！" : "老师模式已关闭", newValue ? "happy" : "idle");
                         }}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 ${isTeacherMode
                             ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-300 shadow-[0_0_15px_rgba(234,179,8,0.3)]"
@@ -2782,7 +2826,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                 {/* Left: Learning Panel (Floating Overlay) */}
                 <div className={cn(
-                    "absolute left-4 top-4 bottom-4 z-10 transition-all duration-500 ease-out flex flex-col pointer-events-none",
+                    "absolute left-4 top-4 bottom-4 transition-all duration-500 ease-out flex flex-col pointer-events-none",
+                    isTeacherMode ? "z-50" : "z-10",
                     mode === 'map' ? "-translate-x-[120%] opacity-0" : "translate-x-0 opacity-100",
                     "w-full max-w-[520px] md:max-w-[580px]"
                 )}>
