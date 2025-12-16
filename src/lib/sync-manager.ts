@@ -104,7 +104,7 @@ class SyncManager {
         }
     }
 
-    public async sync(type: 'auto' | 'manual' = 'manual') {
+    public async sync(type: 'auto' | 'manual' = 'manual', mode: 'push-only' | 'full-sync' = 'push-only') {
         if (this.isSyncing) {
             console.log('[SyncManager] Already syncing, skip.');
             return;
@@ -117,10 +117,10 @@ class SyncManager {
         }
 
         this.isSyncing = true;
-        this.notify('syncing', 'Starting background sync...');
+        this.notify('syncing', `Starting ${type} sync (${mode})...`);
         const lastSync = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0');
 
-        console.log(`[SyncManager] Dispatching ${type} sync to Worker. Last sync: ${new Date(lastSync).toLocaleString()}`);
+        console.log(`[SyncManager] Dispatching ${type} sync (${mode}) to Worker. Last sync: ${new Date(lastSync).toLocaleString()}`);
 
         // Set timeout: force reset if worker doesn't respond in 60s
         this.syncTimeout = setTimeout(() => {
@@ -137,7 +137,8 @@ class SyncManager {
             lastSync,
             userId: session.user.id,
             supabaseUrl: SUPABASE_CONFIG.url,
-            supabaseKey: SUPABASE_CONFIG.anonKey
+            supabaseKey: SUPABASE_CONFIG.anonKey,
+            syncMode: mode
         });
     }
 }

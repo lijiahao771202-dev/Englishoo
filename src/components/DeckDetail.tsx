@@ -279,12 +279,12 @@ export function DeckDetail({
   };
 
   const handleStartLearn = async () => {
-    // Force reload data before starting
-    await loadData();
-    if (stats.new > 0) {
-      onStartSession({ newLimit: 20, reviewLimit: 0, newGroupLimit: 1 });
+    // [FIX 2024-12-16] 整组学习模式 - 跳转到分组页面让用户选择组
+    // 用户需求：点击"学习新词"应该按组学习，而不是随机加载 N 个新词
+    if (onOpenDeckClusters) {
+      onOpenDeckClusters();
     } else {
-      alert('暂无新词');
+      alert('请先进入单词分组页面开始学习');
     }
   };
 

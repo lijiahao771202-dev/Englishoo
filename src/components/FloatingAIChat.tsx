@@ -8,7 +8,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { X, Send, Sparkles, Loader2, GripVertical } from 'lucide-react';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { getMascotSkin, loadMascotConfig, type MascotSkin } from '@/lib/mascot-config';
+
 import { getAllCards } from '@/lib/data-source'; // [Killer Feature] Knowledge Connect
 import { cn } from '@/lib/utils';
 

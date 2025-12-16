@@ -218,7 +218,7 @@ async function saveLogsToCloud(logs: (ReviewLog & { cardId: string })[]) {
 // -------------------------------------------------------------
 
 self.onmessage = async (e: MessageEvent<SyncMessage>) => {
-    const { type, accessToken, lastSync, userId, supabaseUrl, supabaseKey } = e.data;
+    const { type, accessToken, lastSync, userId, supabaseUrl, supabaseKey, syncMode } = e.data;
 
     if (type === 'START_SYNC') {
         try {
@@ -287,24 +287,30 @@ self.onmessage = async (e: MessageEvent<SyncMessage>) => {
             // PULL LOGIC (Incremental)
             // --------------------------------------------------
 
-            console.log('[Sync Worker] Pulling remote decks...');
-            const remoteDecks = await fetchDecksUpdatedSince(lastSync);
-            if (remoteDecks.length > 0) {
-                console.log(`[Sync Worker] Pulled ${remoteDecks.length} decks.`);
-                for (const d of remoteDecks) {
-                    await localDB.createDeck(d as Deck);
-                }
-            }
+            const currentSyncMode = syncMode || 'push-only'; // Default to push-only per user request
 
-            console.log('[Sync Worker] Pulling remote cards...');
-            self.postMessage({ type: 'STATUS', status: 'syncing', message: 'Checking remote updates...' } as WorkerResponse);
-            const remoteCards = await fetchCardsUpdatedSince(lastSync);
-            if (remoteCards.length > 0) {
-                console.log(`[Sync Worker] Pulled ${remoteCards.length} cards. Saving to IDB...`);
-                self.postMessage({ type: 'STATUS', status: 'syncing', message: `Updating ${remoteCards.length} cards...` } as WorkerResponse);
-                await localDB.saveCards(remoteCards);
+            if (currentSyncMode === 'full-sync') {
+                console.log('[Sync Worker] Pulling remote decks...');
+                const remoteDecks = await fetchDecksUpdatedSince(lastSync);
+                if (remoteDecks.length > 0) {
+                    console.log(`[Sync Worker] Pulled ${remoteDecks.length} decks.`);
+                    for (const d of remoteDecks) {
+                        await localDB.createDeck(d as Deck);
+                    }
+                }
+
+                console.log('[Sync Worker] Pulling remote cards...');
+                self.postMessage({ type: 'STATUS', status: 'syncing', message: 'Checking remote updates...' } as WorkerResponse);
+                const remoteCards = await fetchCardsUpdatedSince(lastSync);
+                if (remoteCards.length > 0) {
+                    console.log(`[Sync Worker] Pulled ${remoteCards.length} cards. Saving to IDB...`);
+                    self.postMessage({ type: 'STATUS', status: 'syncing', message: `Updating ${remoteCards.length} cards...` } as WorkerResponse);
+                    await localDB.saveCards(remoteCards);
+                } else {
+                    console.log('[Sync Worker] No remote updates.');
+                }
             } else {
-                console.log('[Sync Worker] No remote updates.');
+                console.log('[Sync Worker] Check-Only Mode (Push-Only). Skipping Pull.');
             }
 
             // SUCCESS

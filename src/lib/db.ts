@@ -292,6 +292,7 @@ export async function saveCard(card: WordCard) {
         ...card,
         updatedAt: Date.now()
     };
+    console.log(`[DB] saveCard: ${card.word}, State:${card.state}, Fam:${card.isFamiliar}`);
     return db.put('cards', cardWithTimestamp);
 }
 
@@ -303,23 +304,25 @@ export async function saveCards(cards: WordCard[]) {
     const tx = db.transaction('cards', 'readwrite');
     const store = tx.objectStore('cards');
 
-    // We update timestamp for all input cards if they don't have one?
-    // Actually, if we are saving from UI, we want to update.
-    // If we are saving from Sync (Pull), we might want to preserve the remote timestamp?
-    // BUT SyncManager usually only calls this for PULL.
-
-    // Since SyncManager uses this for "Pull from Cloud", we should respect the incoming data.
-    // The incoming data SHOULD have correct timestamps.
-    // However, if we use this for "Batch Edit" in UI, we want new timestamps.
-    // For now, let's assume if updatedAt is present, keep it (Sync), else set it (Local Edit).
-
     const now = Date.now();
     for (const card of cards) {
-        // If it's a local UI update, updatedAt might be undefined or old.
-        // If it's a Sync update, updatedAt comes from server.
+        // [FIX] 防退化检查：避免云端旧数据覆盖本地新数据
+        // 如果是从 Sync Worker 调用，card.updatedAt 会有值
+        // 如果是从 UI 本地批量调用，card.updatedAt 可能为空，此时使用 now (即视为最新)
+        const newTimestamp = card.updatedAt || now;
+
+        // 如果传入了明确的时间戳（说明是同步数据），则需要检查本地是否有更新的版本
+        if (card.updatedAt) {
+            const existing = await store.get(card.id);
+            if (existing && existing.updatedAt && existing.updatedAt > card.updatedAt) {
+                console.warn(`[DB] Skip overwrite: Local card "${card.word}" is newer (${existing.updatedAt} > ${card.updatedAt})`);
+                continue;
+            }
+        }
+
         const finalCard = {
             ...card,
-            updatedAt: card.updatedAt || now
+            updatedAt: newTimestamp
         };
         await store.put(finalCard);
     }

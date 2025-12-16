@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Save, User, Award, Clock, BookOpen, Flame, Camera, ChevronRight } from 'lucide-react';
+import { X, User, Award, BookOpen, Flame } from 'lucide-react';
 import { useUserProfile, AVATARS } from '@/hooks/useUserProfile';
 import { getAllLogs, getAllCards } from '@/lib/data-source';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+
 
 interface UserProfileSettingsModalProps {
     isOpen: boolean;
@@ -154,7 +154,7 @@ export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserPro
                                         className={cn(
                                             "aspect-square rounded-2xl flex items-center justify-center text-2xl transition-all border-2",
                                             selectedAvatar === avatar.id
-                                                ? `bg-white/10 border-blue-500 scale-105 shadow-lg shadow-blue-500/20`
+                                                ? "bg-white/10 border-blue-500 scale-105 shadow-lg shadow-blue-500/20"
                                                 : "bg-white/5 border-transparent hover:bg-white/10 hover:scale-105"
                                         )}
                                     >
@@ -234,4 +234,3 @@ export function UserProfileSettingsModal({ isOpen, onClose, userEmail }: UserPro
         </div>
     );
 }
-

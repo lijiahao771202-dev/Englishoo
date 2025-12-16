@@ -65,6 +65,11 @@ interface FlashcardProps {
   onPositionChange?: (data: { point: { x: number; y: number }; transform: { x: number; y: number } }) => void;
   initialPosition?: { x: number; y: number };
   isSpotlight?: boolean;
+
+  /**
+   * @description 动作回调：标记为熟词 (跳过测试)
+   */
+  onMarkFamiliar?: () => void;
 }
 
 /**
@@ -96,6 +101,7 @@ export function Flashcard({
   onKnow,
   onForgot,
   onRate,
+  onMarkFamiliar,
   onSemanticNeighborClick,
   onSemanticNeighborHover,
   onPositionChange,
@@ -352,10 +358,16 @@ export function Flashcard({
     }
   };
 
-  const handleToggleFamiliar = async (e: React.MouseEvent) => {
+  const handleToggleFamiliar = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // [MODIFIED] 如果存在 onMarkFamiliar 且当前未标记为熟悉，则调用它以触发“直接完成”逻辑
+    if (onMarkFamiliar && !card.isFamiliar) {
+      onMarkFamiliar();
+      return;
+    }
+    // 否则仅切换状态（如取消熟悉）
     if (onUpdateCard) {
-      await onUpdateCard({ ...card, isFamiliar: !card.isFamiliar });
+      onUpdateCard({ ...card, isFamiliar: !card.isFamiliar });
     }
   };
 
@@ -414,16 +426,25 @@ export function Flashcard({
     speak(card.word);
   }, [card.word]);
 
-  // Auto-play when card word changes
+  // Ref to track last spoken word to prevent duplicates
+  const lastSpokenWordRef = useRef<string | null>(null);
+
+  // Auto-play when card word changes (debounced, deduplicated)
   useEffect(() => {
+    // [FIX] 防止重复朗读：如果此单词刚刚被朗读过，则跳过
+    if (lastSpokenWordRef.current === card.word) {
+      return;
+    }
+
     const timer = setTimeout(() => {
+      lastSpokenWordRef.current = card.word;
       speakWord();
     }, 100);
     return () => {
       clearTimeout(timer);
       stopAll(); // 切换卡片时停止之前的 TTS
     };
-  }, [speakWord]);
+  }, [card.word]); // 只依赖 card.word，不依赖 speakWord 以避免不必要的重复
 
   const handleSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();

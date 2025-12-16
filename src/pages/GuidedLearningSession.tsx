@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2 } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
-import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache } from '@/lib/data-source';
+import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache, forceSyncNow } from '@/lib/data-source';
 import { cn } from '@/lib/utils';
 import { speak } from '@/lib/tts';
-import { playClickSound, playSuccessSound, playFailSound, playPassSound, playSpellingSuccessSound, playSessionCompleteSound, playKnowSound } from '@/lib/sounds';
+import { playClickSound, playSuccessSound, playFailSound, playKnowSound, playSessionCompleteSound, playSpellingSuccessSound, playPassSound } from '@/lib/sounds';
 import { Flashcard } from '@/components/Flashcard';
 import type { WordCard } from '@/types';
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, generateEdgeLabels, generateEdgeLabelsOnly, generateBridgingExample, generateRelatedWords } from '@/lib/deepseek';
@@ -44,6 +44,7 @@ export interface GuidedLearningSessionProps {
     sessionGroups?: Array<{ label: string; items: WordCard[] }>;
     onUpdateCard?: (card: WordCard) => Promise<void | WordCard>;
     sessionMode?: 'new' | 'review' | 'mixed'; // [NEW] Explicit session mode
+    initialGroupIndex?: number; // [NEW] 外部指定起始组索引
 }
 
 // 扩展 NodeObject 类型以包含自定义属性
@@ -69,7 +70,7 @@ interface SessionItem {
     nodeId: string; // Keep track of graph node ID for focus
 }
 
-export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, sessionGroups, onUpdateCard, sessionMode = 'mixed' }: GuidedLearningSessionProps) {
+export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, sessionGroups, onUpdateCard, sessionMode = 'mixed', initialGroupIndex }: GuidedLearningSessionProps) {
     const [mode, setMode] = useState<'map' | 'session'>('map');
     const [levels, setLevels] = useState<CurriculumLevel[]>([]);
     const [currentLevel, setCurrentLevel] = useState<CurriculumLevel | null>(null);
@@ -108,7 +109,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [isHoveringCard, setIsHoveringCard] = useState(false); // [NEW] Track if hovering card to prevent graph interaction
     const [isCardFlipped, setIsCardFlipped] = useState(false); // [NEW] Track card flip state for controls
     const [justLearnedNodeId, setJustLearnedNodeId] = useState<string | null>(null);
-    const [animationTime, setAnimationTime] = useState(0); // [FIX] For smooth canvas animations
+
+    // [RESTORED] State Variables
     // Highlighted Neighbor State (Cross-Highlighting)
     const [highlightedNeighborId, setHighlightedNeighborId] = useState<string | null>(null);
     const [isGraphGenerating, setIsGraphGenerating] = useState(false);
@@ -140,9 +142,6 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         }
 
         // 3. Fetch from API (Queue it effectively)
-        // Note: We don't await here to avoid blocking UI, but we should limit concurrency if possible.
-        // For simplicity in this version, we just fire and forget, relying on internal logic.
-        // However, to avoid redundant calls, we mark it as 'fetching' in L1.
         aiCacheRef.current.set(word, 'fetching');
 
         try {
@@ -151,7 +150,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 aiCacheRef.current.set(word, relatedItems);
                 await saveAIGraphCache({ word, relatedItems, timestamp: Date.now() });
             } else {
-                aiCacheRef.current.delete(word); // Retry later if failed
+                aiCacheRef.current.delete(word);
             }
         } catch (e) {
             console.error(`Prefetch failed for ${word}`, e);
@@ -164,57 +163,44 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         if (!queue.length || !apiKey) return;
 
         // Prefetch next 4 items
-        const itemsToPrefetch = queue.slice(1, 5); // Next 4 items
+        const itemsToPrefetch = queue.slice(1, 5);
         itemsToPrefetch.forEach(async (item) => {
             prefetchRelatedWords(item.card.word);
 
-            // 预生成词根词缀（如果没有）
             if (!item.card.roots) {
                 try {
                     const roots = await generateRoots(item.card.word, apiKey);
                     if (roots && roots.length > 0) {
-                        const updated = { ...item.card, roots };
+                        // [FIX] Race Condition: Fetch latest card to avoid overwriting progress
+                        const latest = await getCardsByIds([item.card.id]);
+                        const baseCard = latest[0] || item.card;
+
+                        const updated = { ...baseCard, roots };
                         handleUpdateCard(updated);
                     }
-                } catch (e) { /* 静默失败 */ }
+                } catch (e) { }
             }
 
-            // 预生成音节切分（如果没有）
             if (!item.card.syllables) {
                 try {
                     const syllables = await generateSyllables(item.card.word, apiKey);
                     if (syllables) {
-                        const updated = { ...item.card, syllables };
+                        // [FIX] Race Condition: Fetch latest card
+                        const latest = await getCardsByIds([item.card.id]);
+                        const baseCard = latest[0] || item.card;
+
+                        const updated = { ...baseCard, syllables };
                         handleUpdateCard(updated);
                     }
-                } catch (e) { /* 静默失败 */ }
+                } catch (e) { }
             }
         });
-    }, [queue, apiKey, prefetchRelatedWords, currentItem]); // Trigger when queue changes or current item advances
+    }, [queue, apiKey, prefetchRelatedWords, currentItem]);
 
     // Reset card flip state when item changes
     useEffect(() => {
         setIsCardFlipped(false);
     }, [currentItem]);
-
-    // [FIX] Animation loop for smooth ripple/pulse effects at ~30fps
-    useEffect(() => {
-        let rafId: number;
-        let lastUpdate = 0;
-        const targetFps = 30; // 30fps for smooth but efficient animation
-        const frameInterval = 1000 / targetFps;
-
-        const animate = (timestamp: number) => {
-            if (timestamp - lastUpdate >= frameInterval) {
-                setAnimationTime(timestamp);
-                lastUpdate = timestamp;
-            }
-            rafId = requestAnimationFrame(animate);
-        };
-
-        rafId = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(rafId);
-    }, []);
 
 
     // [NEW] Real-time Example Generation Effect
@@ -350,7 +336,56 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             lastProcessedGroupLabelRef.current = group.label;
             updateGraphForGroup(group);
         }
-    }, [activeGroupIndex, sessionGroups]);
+
+        // [FIX] Save Detailed Progress
+        if (deckName) {
+            const progress = {
+                deckName,
+                activeGroupIndex,
+                completedNodeIds: Array.from(completedNodeIds),
+                timestamp: Date.now()
+            };
+            localStorage.setItem('gls_progress', JSON.stringify(progress));
+        }
+    }, [activeGroupIndex, sessionGroups, completedNodeIds, deckName]);
+
+    // [FIX] Restore Detailed Progress
+    useEffect(() => {
+        // Run once on mount if we have groups
+        if (sessionGroups && sessionGroups.length > 0) {
+            const savedStr = localStorage.getItem('gls_progress');
+            if (savedStr) {
+                try {
+                    const saved = JSON.parse(savedStr);
+                    // Match simple heuristic: same deck name
+                    if (saved.deckName === deckName && Date.now() - saved.timestamp < 24 * 3600 * 1000) {
+                        console.log("Restoring internal progress...", saved);
+
+                        // Restore completed IDs
+                        if (saved.completedNodeIds) {
+                            setCompletedNodeIds(new Set(saved.completedNodeIds));
+                        }
+
+                        // Restore Group Index
+                        // We only do this if we are currently at 0 (initial) or if we want to force adherence
+                        // But initSessionFromCards might have set it based on DB state.
+                        // Let's defer to saved state as it's more specific to "what the user was just satisfied with"
+                        if (typeof saved.activeGroupIndex === 'number' && saved.activeGroupIndex >= 0) {
+                            setActiveGroupIndex(saved.activeGroupIndex);
+                            // We need to trigger queue load for this index?
+                            // loadGroupQueue is called in `initSessionFromCards` for initial index.
+                            // If we change it here, we should call it.
+                            loadGroupQueue(saved.activeGroupIndex);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to restore progress", e);
+                }
+            }
+        }
+    }, [isQueueInitialized]); // Run after primary init to override?? Or just run once.
+    // Actually, `isQueueInitialized` flips once.
+
 
     // Monitor Current Item for Review Mode Graph Update
     useEffect(() => {
@@ -366,32 +401,11 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         updateGraphForContext(currentItem.card);
     }, [currentItem, sessionGroups]); // Removed graphData from dependency to avoid loops, handled inside check
 
-    // Monitor Queue to Switch Groups & Auto-Advance
+    // Monitor Queue to Switch Groups (组同步 - 不处理完成逻辑)
+    // 完成逻辑由下方的 "Check Phase Completion" effect 统一处理
     useEffect(() => {
         if (!sessionGroups || sessionGroups.length === 0) return;
-
-        // Case 1: Queue is empty -> Finished current group
-        if (queue.length === 0) {
-            // [FIX] Don't trigger completion if we haven't even initialized the queue yet
-            if (!isQueueInitialized) return;
-
-            // Only act if we correspond to a valid active group
-            if (activeGroupIndex !== -1) {
-                // Check if we already finished (to avoid loops if we stay in this state)
-                if (showGroupCompletion || showReport) return;
-
-                const nextIndex = activeGroupIndex + 1;
-                if (nextIndex < sessionGroups.length) {
-                    console.log(`[Session] Group ${activeGroupIndex} complete. Waiting for user to advance...`);
-                    // [FIX] Pause for Group Report instead of auto-advancing
-                    setShowGroupCompletion(true);
-                } else {
-                    console.log('[Session] All groups complete.');
-                    setShowReport(true);
-                }
-            }
-            return;
-        }
+        if (queue.length === 0) return; // 空队列由另一个 effect 处理
 
         // Case 2: Queue has items -> Ensure Active Group matches current item
         // This handles if we manually injected random items, but standard flow relies on Case 1.
@@ -403,7 +417,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             // But for safety:
             setActiveGroupIndex(groupIndex);
         }
-    }, [queue, sessionGroups, activeGroupIndex, showGroupCompletion, showReport]);
+    }, [queue, sessionGroups, activeGroupIndex]);
 
     const handleAdvanceGroup = () => {
         if (!sessionGroups) return;
@@ -530,11 +544,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     if (freshCard) {
                         // Update reference if possible, or just use it for check
                         group.items[index] = freshCard;
-                        if (freshCard.state !== State.New) {
+                        // [FIX] 包含 isFamiliar 检查 - 标记熟悉的卡片也视为已学习
+                        if (freshCard.state !== State.New || freshCard.isFamiliar) {
                             learnedIds.add(item.id);
                         }
                     } else {
-                        if (item.state !== State.New) {
+                        // [FIX] 包含 isFamiliar 检查
+                        if (item.state !== State.New || item.isFamiliar) {
                             learnedIds.add(item.id);
                         }
                     }
@@ -543,21 +559,36 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
             setCompletedNodeIds(learnedIds);
 
-            // 2. Find first incomplete group
+            // 2. Find first incomplete group OR use initialGroupIndex
             let startGroupIndex = 0;
-            for (let i = 0; i < sessionGroups.length; i++) {
-                const group = sessionGroups[i];
-                // Check against fresh data (which we updated into group.items)
-                // [FIX] Consider Learning/Relearning as "Incomplete" too
-                const hasUnlearned = group.items.some(c => c.state === State.New || c.state === State.Learning || c.state === State.Relearning);
-                if (hasUnlearned) {
-                    startGroupIndex = i;
-                    break;
+
+            // [NEW] 优先使用外部传入的起始索引
+            if (typeof initialGroupIndex === 'number' && initialGroupIndex >= 0 && initialGroupIndex < sessionGroups.length) {
+                startGroupIndex = initialGroupIndex;
+                console.log(`[initSessionFromCards] 使用外部传入的起始索引: ${startGroupIndex}`);
+            } else {
+                // 自动查找第一个未完成组
+                for (let i = 0; i < sessionGroups.length; i++) {
+                    const group = sessionGroups[i];
+                    // Check against fresh data (which we updated into group.items)
+                    // [FIX] 包含 isFamiliar 检查 - 标记熟悉的卡片视为已完成
+                    const hasUnlearned = group.items.some(c =>
+                        (c.state === State.New || c.state === State.Learning || c.state === State.Relearning)
+                        && !c.isFamiliar
+                    );
+                    if (hasUnlearned) {
+                        startGroupIndex = i;
+                        break;
+                    }
                 }
+                console.log(`[initSessionFromCards] 自动计算起始索引: ${startGroupIndex}`);
             }
 
             // If all learned, start at 0
-            const allLearned = sessionGroups.every(g => g.items.every(c => c.state !== State.New && c.state !== State.Learning && c.state !== State.Relearning));
+            // [FIX] 包含 isFamiliar 检查
+            const allLearned = sessionGroups.every(g => g.items.every(c =>
+                (c.state !== State.New && c.state !== State.Learning && c.state !== State.Relearning) || c.isFamiliar
+            ));
             if (allLearned) {
                 startGroupIndex = 0;
             }
@@ -597,7 +628,39 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         if (!sessionGroups || !sessionGroups[groupIndex]) return;
 
         const group = sessionGroups[groupIndex];
-        const words = group.items.map(c => c.word);
+
+        // [FIX] 从数据库刷新卡片状态，确保 isFamiliar 和 state 是最新的
+        const cardIds = group.items.map(c => c.id);
+        let freshItems = [...group.items]; // 默认使用现有数据
+
+        try {
+            const freshCards = await getCardsByIds(cardIds);
+            const freshMap = new Map(freshCards.map(c => [c.id, c]));
+
+            // 用最新数据替换组内卡片
+            freshItems = group.items.map(item => freshMap.get(item.id) || item);
+
+            // 同时更新 sessionGroups 中的引用（副作用，但有助于一致性）
+            group.items.forEach((item, index) => {
+                const fresh = freshMap.get(item.id);
+                if (fresh) group.items[index] = fresh;
+            });
+
+            // [DEBUG] 输出刷新后的卡片状态
+            const stateCount = { new: 0, learning: 0, review: 0, relearning: 0, familiar: 0 };
+            freshCards.forEach(c => {
+                if (c.isFamiliar) stateCount.familiar++;
+                else if (c.state === State.New) stateCount.new++;
+                else if (c.state === State.Learning) stateCount.learning++;
+                else if (c.state === State.Review) stateCount.review++;
+                else if (c.state === State.Relearning) stateCount.relearning++;
+            });
+            console.log(`[loadGroupQueue] 刷新了 ${freshCards.length} 张卡片:`, stateCount);
+        } catch (e) {
+            console.error("[loadGroupQueue] 刷新卡片状态失败", e);
+        }
+
+        const words = freshItems.map(c => c.word);
 
         // Sort by Semantic Chain
         const sortedWords = await EmbeddingService.getInstance().sortWordsBySemanticChain(words);
@@ -605,22 +668,26 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         // Reorder items based on sortedWords
         const sortedItems: WordCard[] = [];
         sortedWords.forEach(w => {
-            const item = group.items.find(c => c.word.toLowerCase() === w.toLowerCase());
+            const item = freshItems.find(c => c.word.toLowerCase() === w.toLowerCase());
             if (item) sortedItems.push(item);
         });
 
         // Add any missing items (fallback)
-        group.items.forEach(item => {
+        freshItems.forEach(item => {
             if (!sortedItems.some(si => si.id === item.id)) sortedItems.push(item);
         });
 
-        // Filter UNLEARNED items for the queue
-        // [FIX] Include Learning/Relearning cards so incomplete groups can be finished
+        // [FIX 2024-12-16] 恢复过滤逻辑：只加载未学习的卡片
+        // - state 为 New/Learning/Relearning 且 非 isFamiliar 才加入队列
+        // - 这样重新进入时不会从头开始，只学习剩余未完成的
         const unlearnedItems = sortedItems.filter(c =>
             (c.state === State.New || c.state === State.Learning || c.state === State.Relearning)
             && !c.isFamiliar
         );
 
+        console.log(`[loadGroupQueue] 组 ${groupIndex}: ${unlearnedItems.length}/${sortedItems.length} 张未学卡片`);
+
+        // 如果组内所有卡片都已学完，队列为空，将触发组完成逻辑
         const newQueue: SessionItem[] = unlearnedItems.map(card => ({
             card,
             type: 'learn',
@@ -810,7 +877,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             // [NEW] Synchronous Label Generation (Prioritize Colors)
             // User requested to wait for colors before rendering
             const missingLabelLinks = linksWithLabels.filter(l => !l.label && l.source && l.target);
-            if (missingLabelLinks.length > 0 && apiKey) {
+            const tokenSaverMode = localStorage.getItem('token_saver_mode') === 'true';
+            if (missingLabelLinks.length > 0 && apiKey && !tokenSaverMode) {
                 const pairs = missingLabelLinks.map(l => {
                     const sNode = allNodes.find(n => n.id === l.source);
                     const tNode = allNodes.find(n => n.id === l.target);
@@ -1049,7 +1117,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             target: n.card.word
         }));
 
-        if (pairs.length > 0 && apiKey) {
+        const tokenSaverMode = localStorage.getItem('token_saver_mode') === 'true';
+        if (pairs.length > 0 && apiKey && !tokenSaverMode) {
             generateEdgeLabels(pairs, apiKey).then(labeledPairs => {
                 setGraphData(prev => {
                     if (!prev) return null;
@@ -1314,16 +1383,25 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     };
 
     const handleUpdateCard = async (updatedCard: WordCard) => {
-        await saveCard(updatedCard);
+        // [FIX] Avoid Double Save
+        // update queue immediately for UI responsiveness
         updateCardInQueue(updatedCard);
+
         if (onUpdateCard) {
+            // Trust parent to save (App.tsx handles DB save)
             await onUpdateCard(updatedCard);
+        } else {
+            // Fallback for standalone usage
+            await saveCard(updatedCard);
         }
         return updatedCard;
     };
 
     // Handlers for Flashcard generators
     const handleGenerateExample = async (card: WordCard) => {
+        // [FIX] Caching Check
+        if (card.example && card.exampleMeaning) return card;
+
         if (!apiKey) { alert("请配置 API Key"); return undefined; }
         try {
             const { example, exampleMeaning } = await generateExample(card.word, apiKey);
@@ -1336,6 +1414,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     // For brevity, I will implement the key ones used in Flashcard
 
     const handleGenerateMnemonic = async (card: WordCard) => {
+        // [FIX] Caching Check
+        if (card.mnemonic) return card;
+
         if (!apiKey) { alert("请配置 API Key"); return undefined; }
         try {
             const mnemonic = await generateMnemonic(card.word, apiKey);
@@ -1346,6 +1427,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     };
 
     const handleGenerateMeaning = async (card: WordCard) => {
+        // [FIX] Caching Check
+        if (card.meaning && card.roots) return card;
+
         if (!apiKey) { alert("请配置 API Key"); return undefined; }
         try {
             // Parallel generation for Meaning and Roots
@@ -1373,6 +1457,25 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     };
 
     // Learning Flow Handlers
+
+    // [NEW] Mark as Familiar (Skip all tests)
+    const handleMarkFamiliar = useCallback(async () => {
+        if (!currentItem) return;
+
+        playSuccessSound();
+        const card = currentItem.card;
+
+        // 1. Update Card State
+        // Mark as familiar and potentially update state to done/paused if needed
+        const updatedCard = { ...card, isFamiliar: true };
+        await handleUpdateCard(updatedCard);
+
+        // 2. Remove from Queue (Skip testing)
+        setQueue(prev => prev.slice(1));
+
+        // 3. Mascot Celebration
+        mascotEventBus.say(`太棒了！"${card.word}" 已标记为熟词！`, 'happy');
+    }, [currentItem, handleUpdateCard]);
 
     // 1. Learn -> Choice
     const handleKnow = useCallback(() => {
@@ -1577,9 +1680,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             setIsCardFlipped(false); // 翻回正面
 
             // 播放单词发音
-            if (currentItem.card.pronunciation && currentItem.card.audio) {
-                // TODO: Play Audio
-            }
+            // if (currentItem.card.pronunciation) {
+            //     // TODO: Play Audio
+            // }
 
             // [NEW] 答对 -> 开心 / 连击
             const newCombo = comboCount + 1;
@@ -1610,12 +1713,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             // If FSRS handler is provided (Session Mode), call it
             // If FSRS handler is provided (Session Mode), call it
             if (onRate) {
-                // [FIX]: Do not await this. Let it run in background.
-                // alert("[DEBUG] Triggering Save..."); // Debug
-                onRate(currentItem.card, Rating.Good).catch(e => {
-                    console.error(e);
-                    alert("保存失败: " + e.message);
-                });
+                // [DEBUG] 添加调试日志
+                console.log(`[handleCheckSpelling] 调用 onRate 更新状态: ${currentItem.card.word}, 当前state: ${currentItem.card.state}`);
+
+                // [CRITICAL FIX] 等待保存完成，避免用户退出时数据丢失
+                try {
+                    await onRate(currentItem.card, Rating.Good);
+                    console.log(`[handleCheckSpelling] onRate 保存完成: ${currentItem.card.word}`);
+                } catch (e) {
+                    console.error('onRate 保存失败:', e);
+                    alert("保存失败: " + (e as Error).message);
+                }
             } else {
                 alert("Error: onRate handler missing!");
             }
@@ -1683,41 +1791,35 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
     // Check Phase Completion
     useEffect(() => {
-        if (phase === 'word-learning' && queue.length === 0 && graphData) {
-            playSuccessSound();
+        // 只在队列初始化后且队列为空时触发
+        // [FIX] 添加 showGroupCompletion 检查防止重复触发（音效重复问题）
+        if (phase === 'word-learning' && queue.length === 0 && isQueueInitialized && !showGroupCompletion && !showReport) {
 
-            // Auto-advance to next group if available
+            console.log('[Session] Queue empty, triggering group completion', {
+                activeGroupIndex,
+                sessionGroupsLen: sessionGroups?.length,
+                connectionQueueLen: connectionQueue.length
+            });
+
+            // [FIX] 不论有没有 sessionGroups，都显示完成弹窗
+            // 对于单页模式（没有 sessionGroups），直接进入 summary
             if (sessionGroups && sessionGroups.length > 0) {
-                // Find next group with unlearned words
-                let nextIndex = activeGroupIndex + 1;
-                let foundNext = false;
+                // 有分组模式 - 检查是否是最后一组
+                const isLastGroup = activeGroupIndex >= sessionGroups.length - 1;
 
-                while (nextIndex < sessionGroups.length) {
-                    const group = sessionGroups[nextIndex];
-                    // Check against completedNodeIds instead of stale group item state
-                    const hasUnlearned = group.items.some(c => !completedNodeIds.has(c.id));
-                    if (hasUnlearned) {
-                        foundNext = true;
-                        break;
-                    }
-                    nextIndex++;
-                }
-
-                if (foundNext) {
-                    setActiveGroupIndex(nextIndex);
-                    loadGroupQueue(nextIndex);
-                    setPhase('overview'); // Show overview for next group
+                if (isLastGroup) {
+                    // 最后一组完成 - 播放会话完成音效并显示最终报告
+                    console.log('[Session] Last group complete. Showing final report.');
+                    playSessionCompleteSound();
+                    setShowReport(true);
                 } else {
-                    // All groups completed
-                    if (connectionQueue.length > 0) {
-                        setPhase('connection-learning');
-                    } else {
-                        playSessionCompleteSound();
-                        setPhase('summary');
-                    }
+                    // 中间组完成 - 播放成功音效并显示组完成弹窗
+                    console.log(`[Session] Group ${activeGroupIndex} complete. Showing group completion modal.`);
+                    playSuccessSound();
+                    setShowGroupCompletion(true);
                 }
             } else {
-                // Single session completed
+                // 无分组模式（单独卡片学习）
                 if (connectionQueue.length > 0) {
                     setPhase('connection-learning');
                 } else {
@@ -1726,13 +1828,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 }
             }
         }
-    }, [queue, phase, graphData, sessionGroups, activeGroupIndex, completedNodeIds, connectionQueue.length]);
+    }, [queue.length, phase, isQueueInitialized, sessionGroups, activeGroupIndex, connectionQueue.length, showGroupCompletion, showReport]);
 
     // [Feature I] Teacher Mode Prefetch (Next 3 items)
     useEffect(() => {
         if (!isTeacherMode || !currentItem) return;
 
-        const currentIndex = queue.findIndex(item => item.id === currentItem.id);
+        const currentIndex = queue.findIndex(item => item.nodeId === currentItem.nodeId);
         if (currentIndex !== -1) {
             // Prefetch next 3 items
             for (let i = 1; i <= 3; i++) {
@@ -2327,6 +2429,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         onKnow={isReview ? undefined : handleKnow}
                         onForgot={isReview ? undefined : handleLoop}
                         onRate={isReview && onRate ? handleFSRSRate : undefined}
+                        onMarkFamiliar={handleMarkFamiliar}
                         onEnrich={() => handleEnrich(currentItem.card)}
                         onUpdateCard={async (updatedCard) => {
                             // [FIX] ID Persistence Safeguard
@@ -2335,26 +2438,27 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                 updatedCard.id = currentItem.card.id;
                             }
 
-                            // 1. Call parent handler to save to DB
-                            if (onUpdateCard) {
-                                await onUpdateCard(updatedCard);
-                            }
+                            // [CRITICAL FIX] 使用 handleUpdateCard 而非 onUpdateCard
+                            // handleUpdateCard 会同时保存到 IndexedDB 和调用父组件回调
+                            await handleUpdateCard(updatedCard);
 
                             // 2. [User Request] Familiar Skip Logic
                             if (updatedCard.isFamiliar) {
                                 playSuccessSound(); // Feedback
+
+                                // [FIX] Update Progress Tracking
+                                setCompletedNodeIds(prev => new Set(prev).add(updatedCard.id));
+                                // Count as "Correct" (since you know it)
+                                setSessionStats(prev => ({ ...prev, correct: prev.correct + 1, total: prev.total + 1 }));
+
                                 // Remove from queue immediately
                                 setQueue(prev => prev.filter(item => item.card.id !== updatedCard.id));
                                 // Also ensure we don't show it again if it was looping
                                 return;
                             }
 
-                            // 3. Normal Update (update local queue state)
-                            setQueue(prev => prev.map(item =>
-                                item.card.id === updatedCard.id
-                                    ? { ...item, card: updatedCard }
-                                    : item
-                            ));
+                            // 3. Normal Update - 队列已由 handleUpdateCard 中的 updateCardInQueue 更新
+                            // 不需要再次更新队列
                         }}
                         onGenerateExample={handleGenerateExample}
                         onGenerateMnemonic={handleGenerateMnemonic}
@@ -2704,7 +2808,12 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
             {/* Header - Glass Style */}
             <header className="h-16 border-b border-white/10 flex items-center px-6 bg-white/5 backdrop-blur-xl z-10">
-                <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-4">
+                <button onClick={async () => {
+                    // 退出前强制同步数据
+                    console.log('[GuidedLearningSession] 退出前同步数据...');
+                    await forceSyncNow();
+                    onBack();
+                }} className="p-2 hover:bg-white/10 rounded-full transition-colors mr-4">
                     <ArrowLeft className="w-5 h-5 text-white/70" />
                 </button>
                 <div>
@@ -3174,6 +3283,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             startTime={sessionStats.startTime} // Use session start or track group start? Session start is ok.
                             cardsCount={sessionGroups?.[activeGroupIndex]?.items.length || 0}
                             onClose={handleAdvanceGroup}
+                            onExit={onBack}
                         />
                     </div>
                 )}

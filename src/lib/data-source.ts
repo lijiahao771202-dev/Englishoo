@@ -1,39 +1,43 @@
 /**
- * @file 数据源切换层 (data-source.ts) [Refactored for Local-First]
+ * @file 数据源切换层 (data-source.ts) [Refactored for Local-First with DataService]
  * @description 本地优先架构核心
- * - 所有 UI 操作 -> IndexedDB (0 Latency)
- * - 后台 SyncManager -> Unifies Cloud Data
+ * - 核心数据操作通过 DataService 单例 (自动同步)
+ * - 缓存操作直接使用 localDB (无需同步)
  */
 import * as localDB from './db';
-import { syncManager } from './sync-manager'; // Import starts the auto-sync logic
+import { dataService, forceSyncNow } from './DataService';
+import { syncManager } from './sync-manager';
 
 // ============================================================
-// 统一接口 (全部指向 LocalDB)
+// 核心操作 (通过 DataService - 自动同步)
 // ============================================================
 
 // 卡包操作
-export const getAllDecks = localDB.getAllDecks;
-export const createDeck = localDB.createDeck;
-export const deleteDeck = localDB.deleteDeck;
-export const getDeckById = localDB.getDeckById;
+export const getAllDecks = () => dataService.getAllDecks();
+export const createDeck = (deck: Parameters<typeof localDB.createDeck>[0]) => dataService.saveDeck(deck);
+export const deleteDeck = (id: string) => dataService.deleteDeck(id);
+export const getDeckById = (id: string) => dataService.getDeckById(id);
 
-// 卡片操作
-export const getAllCards = localDB.getAllCards;
-export const saveCard = localDB.saveCard;
-export const saveCards = localDB.saveCards;
-export const deleteCard = localDB.deleteCard;
-export const getNewCards = localDB.getNewCards;
-export const getDueCards = localDB.getDueCards;
-export const getActiveCards = localDB.getActiveCards;
-export const getCardsByIds = localDB.getCardsByIds;
-export const getCardByWord = localDB.getCardByWord;
-export const getCardCount = localDB.getCardCount;
+// 卡片操作 (核心 - 通过 DataService)
+export const getAllCards = (deckId?: string) => dataService.getAllCards(deckId);
+export const saveCard = (card: Parameters<typeof localDB.saveCard>[0]) => dataService.saveCard(card);
+export const saveCards = (cards: Parameters<typeof localDB.saveCards>[0]) => dataService.saveCards(cards);
+export const deleteCard = (id: string) => dataService.deleteCard(id);
+export const getNewCards = (deckId?: string) => dataService.getNewCards(deckId);
+export const getDueCards = (deckId?: string) => dataService.getDueCards(deckId);
+export const getActiveCards = (deckId?: string) => dataService.getActiveCards(deckId);
+export const getCardsByIds = (ids: string[]) => dataService.getCardsByIds(ids);
+export const getCardByWord = (word: string) => dataService.getCardByWord(word);
+export const getCardCount = (deckId?: string) => dataService.getCardCount(deckId);
 
 // 日志操作
-export const addReviewLog = localDB.addReviewLog;
+export const addReviewLog = (log: Parameters<typeof localDB.addReviewLog>[0]) => dataService.addReviewLog(log);
 export const getAllLogs = localDB.getAllLogs;
 
-// 缓存操作
+// ============================================================
+// 缓存操作 (直接使用 localDB - 无需云端同步)
+// ============================================================
+
 export const getSemanticConnections = localDB.getSemanticConnections;
 export const saveSemanticConnections = localDB.saveSemanticConnections;
 export const getGroupGraphCache = localDB.getGroupGraphCache;
@@ -41,15 +45,16 @@ export const saveGroupGraphCache = localDB.saveGroupGraphCache;
 export const getAIGraphCache = localDB.getAIGraphCache;
 export const saveAIGraphCache = localDB.saveAIGraphCache;
 
-// 初始化
+// ============================================================
+// 初始化 & 系统操作
+// ============================================================
+
 export const initDB = async () => {
     // 1. Init Local DB
     await localDB.initDB();
 
     // 2. SyncManager is already initialized via import singleton
-    // We can explicitly trigger an initial sync if needed, 
-    // but SyncManager constructor handles 'auto manual sync' on login check.
-    console.log('[DataSource] Init complete (Local-First Mode)');
+    console.log('[DataSource] Init complete (Local-First Mode with DataService)');
 };
 
 // 系统常量
@@ -59,6 +64,5 @@ export const SYSTEM_DECK_GUIDED = localDB.SYSTEM_DECK_GUIDED;
 export const resetDatabase = localDB.resetDatabase;
 export const addToVocabularyDeck = localDB.addToVocabularyDeck;
 
-// Export sync manager for UI controls
-export { syncManager };
-
+// 导出同步相关
+export { syncManager, forceSyncNow, dataService };

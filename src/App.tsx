@@ -14,7 +14,7 @@ import { getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiv
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, getDefinitionInContext } from '@/lib/deepseek';
 import type { WordCard } from '@/types';
 import { type RecordLog } from 'ts-fsrs';
-import { Settings as SettingsIcon, Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User, LogOut } from 'lucide-react';
+import { Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initTTS } from '@/lib/tts';
 import { importTem8Deck } from '@/lib/import-tem8';
@@ -49,7 +49,7 @@ type View = 'decks' | 'deck-detail' | 'review' | 'learn' | 'teaching' | 'add' | 
  * 4. 学习模式与复习模式的分流逻辑
  */
 function AppContent() {
-    const { user, signOut } = useAuth();
+    const { user } = useAuth();
     const [showAuthModal, setShowAuthModal] = useState(false);
 
     // Navigation State
@@ -72,6 +72,7 @@ function AppContent() {
     const [isLoading, setIsLoading] = useState(false);
     const [isEnriching, setIsEnriching] = useState(false);
     const [sessionGroups, setSessionGroups] = useState<Array<{ label: string; items: WordCard[] }>>([]);
+    const [initialGroupIndex, setInitialGroupIndex] = useState<number | undefined>(undefined);
     // const [originalDeckIdBeforeQuickSession, setOriginalDeckIdBeforeQuickSession] = useState<string | null>(null);
 
     // [New] Global Quick Session Handler
@@ -231,12 +232,50 @@ function AppContent() {
         // Initialize TTS logic
         initTTS();
 
-        initDB().then(() => {
+        initDB().then(async () => {
             setIsDbReady(true);
-            // If we have a current deck, load its data
-            if (currentDeckId) {
-                loadDeckData(currentDeckId);
+
+            // [Fix] Restore Session Context (App Level Persistence)
+            try {
+                const savedSession = localStorage.getItem('app_session_context');
+                // Only restore if user hasn't explicitly navigated elsewhere (checked via view state usually, but view is reset on reload)
+                if (savedSession) {
+                    const ctx = JSON.parse(savedSession);
+                    // Check logic: Only restore if < 24h
+                    if (Date.now() - ctx.timestamp < 24 * 60 * 60 * 1000) {
+                        console.log("Restoring session...", ctx);
+
+                        // Restore core state
+                        if (ctx.currentDeckId) {
+                            setCurrentDeckId(ctx.currentDeckId);
+                            await loadDeckData(ctx.currentDeckId);
+                        }
+
+                        if (ctx.sessionGroups && ctx.sessionGroups.length > 0) {
+                            setSessionGroups(ctx.sessionGroups);
+                            // We also need to restore queue if it was saved, or let session rebuild it.
+                            // Ideally, GuidedLearningSession rebuilds queue from groups.
+                        }
+
+                        // Restore view
+                        if (ctx.view === 'guided-learning') {
+                            // Avoid jarring jump if data isn't ready, but here we await loadDeckData.
+                            setView('guided-learning');
+                        }
+                    } else {
+                        localStorage.removeItem('app_session_context'); // Expired
+                    }
+                }
+            } catch (e) {
+                console.error("Session restore failed", e);
             }
+
+            // If we have a current deck (or restored one), load its data
+            // (Handled above inside restore block if restored, otherwise here?)
+            // If restore happened, currentDeckId is set. But react state update might be async?
+            // Actually, we awaited loadDeckData, but setCurrentDeckId is async. 
+            // Better to rely on the side-effect of setCurrentDeckId in the useEffect [currentDeckId] below?
+            // Yes, line 247 handles data loading.
         }).catch(err => {
             console.error("DB Initialization Failed:", err);
             setDbError(err.message || "Database initialization failed");
@@ -330,6 +369,7 @@ function AppContent() {
     const handleBackToDecks = () => {
         setCurrentDeckId(null);
         setView('decks');
+        localStorage.removeItem('app_session_context'); // [Fix] Clear session on exit
     };
 
     const handleOpenKnowledgeGraph = () => {
@@ -438,6 +478,14 @@ function AppContent() {
             setSessionRatings({ easy: 0, good: 0, hard: 0, again: 0 });
             setShowReport(false);
 
+            // [Fix] Save Session Context
+            localStorage.setItem('app_session_context', JSON.stringify({
+                view: 'guided-learning',
+                currentDeckId: currentDeckId,
+                sessionGroups: groups, // Save groups to restore context
+                timestamp: Date.now()
+            }));
+
             setView('guided-learning');
         } catch (error) {
             console.error("Start session error:", error);
@@ -449,17 +497,27 @@ function AppContent() {
 
 
 
-    const handleStartClusterSession = (groups: Array<{ label: string; items: WordCard[]; originalIndex?: number }>) => {
+    const handleStartClusterSession = (groups: Array<{ label: string; items: WordCard[]; originalIndex?: number }>, startIndex?: number) => {
         if (!groups || groups.length === 0) return;
 
         const allItems = groups.flatMap(g => g.items);
         setSessionQueue(allItems);
         setSessionGroups(groups);
+        setInitialGroupIndex(startIndex); // [NEW] 设置起始组索引
 
         setCurrentCardIndex(0);
         setSessionStartTime(Date.now());
         setSessionRatings({ easy: 0, good: 0, hard: 0, again: 0 });
         setShowReport(false);
+
+        // [Fix] Save Session Context for Clusters
+        localStorage.setItem('app_session_context', JSON.stringify({
+            view: 'guided-learning',
+            currentDeckId: currentDeckId,
+            sessionGroups: groups,
+            initialGroupIndex: startIndex,
+            timestamp: Date.now()
+        }));
 
         setView('guided-learning');
     };
@@ -596,7 +654,7 @@ function AppContent() {
         const { card: updatedCard, log } = scheduleReview(card, rating);
 
         // [DEBUG] Alert state transition for user verification
-        // alert(`[DEBUG] Save State: ${card.state} -> ${updatedCard.state}`);
+        console.log(`[App] handleLearnRate: ${card.word} State: ${card.state} -> ${updatedCard.state}, Due: ${updatedCard.due}`);
 
         await addReviewLog({ ...log, cardId: card.id });
 
@@ -1055,6 +1113,7 @@ function AppContent() {
                                     sessionGroups={sessionGroups}
                                     onUpdateCard={handleUpdateCard}
                                     sessionMode={sessionMode}
+                                    initialGroupIndex={initialGroupIndex}
                                 />
                             </Suspense>
                         </motion.div>

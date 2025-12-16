@@ -1,31 +1,41 @@
+import React from 'react';
 import { Clock, Zap, Trophy, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SessionReportProps {
-  isOpen: boolean;
-  type: 'learn' | 'review';
-  startTime: number; // timestamp
-  cardsCount: number;
-  // Optional stats for review mode
-  ratings?: {
-    again: number;
-    hard: number;
-    good: number;
-    easy: number;
-  };
-  onClose: () => void;
+    isOpen: boolean;
+    type: 'learn' | 'review';
+    startTime: number; // timestamp
+    cardsCount: number;
+    // Optional stats for review mode
+    ratings?: {
+        again: number;
+        hard: number;
+        good: number;
+        easy: number;
+    };
+    onClose: () => void;
+    onExit?: () => void;
 }
 
-export function SessionReport({ 
-    isOpen, 
-    type, 
-    startTime, 
-    cardsCount, 
-    ratings, 
-    onClose 
+export function SessionReport({
+    isOpen,
+    type,
+    startTime,
+    cardsCount,
+    ratings,
+    onClose,
+    onExit
 }: SessionReportProps) {
-    const duration = Math.max(0, Date.now() - startTime);
-    
+    // Fix pure render: Calculate end time once when component mounts/opens
+    const [duration, setDuration] = React.useState(0);
+
+    React.useEffect(() => {
+        if (isOpen) {
+            setDuration(Math.max(0, Date.now() - startTime));
+        }
+    }, [isOpen, startTime]);
+
     // Format duration manually for better control or use date-fns
     // Let's use a simple helper for "Xm Ys"
     const formatDuration = (ms: number) => {
@@ -37,7 +47,7 @@ export function SessionReport({
     };
 
     // Calculate mastery/accuracy if ratings exist
-    const accuracy = ratings 
+    const accuracy = ratings
         ? Math.round(((ratings.easy + ratings.good + ratings.hard) / cardsCount) * 100)
         : 100; // Default to 100% for 'learn' mode as you must pass to finish
 
@@ -46,7 +56,7 @@ export function SessionReport({
             {isOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     {/* Backdrop */}
-                    <motion.div 
+                    <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -55,7 +65,7 @@ export function SessionReport({
                     />
 
                     {/* Modal Content */}
-                    <motion.div 
+                    <motion.div
                         initial={{ scale: 0.9, opacity: 0, y: 20 }}
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -72,7 +82,7 @@ export function SessionReport({
                                 <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-yellow-400/20 to-orange-500/20 flex items-center justify-center border border-white/10 shadow-[0_0_15px_rgba(251,191,36,0.3)]">
                                     <Trophy className="w-10 h-10 text-yellow-400" />
                                 </div>
-                                <motion.div 
+                                <motion.div
                                     initial={{ scale: 0 }}
                                     animate={{ scale: 1 }}
                                     transition={{ delay: 0.3, type: "spring" }}
@@ -137,12 +147,26 @@ export function SessionReport({
                                 </div>
                             )}
 
-                            <button
-                                onClick={onClose}
-                                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300 text-white font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95"
-                            >
-                                继续前行
-                            </button>
+                            <div className="w-full flex gap-3">
+                                {onExit && (
+                                    <button
+                                        onClick={onExit}
+                                        className="flex-1 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-bold transition-all active:scale-95"
+                                    >
+                                        返回
+                                    </button>
+                                )}
+                                <button
+                                    onClick={onClose}
+                                    className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300 text-white font-bold shadow-lg shadow-blue-500/20 transition-all active:scale-95"
+                                >
+                                    继续前行
+                                </button>
+                            </div>
+
+                            {/* Secondary Action if provided (e.g. Return to Menu) */}
+                            {/* Actually, let's make it more explicit. If onExit is provided, we show two buttons. */}
+
                         </div>
                     </motion.div>
                 </div>
