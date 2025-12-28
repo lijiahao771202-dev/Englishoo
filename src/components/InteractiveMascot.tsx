@@ -512,22 +512,53 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
     }, []);
 
     // [Interactive] Resizable & Draggable Blackboard Logic
-    const [boxSize, setBoxSize] = useState({ width: 320, height: 400 });
-    const [boxOffset, setBoxOffset] = useState({ x: -20, y: -40 }); // Initial relative offset
+    const [boxSize, setBoxSize] = useState({ width: 360, height: 420 });
+    const [boxOffset, setBoxOffset] = useState({ x: 0, y: 0 }); // Will be calculated on mount
     const isResizingRef = useRef(false);
     const isDraggingBubbleRef = useRef(false);
     const dragStartPosRef = useRef({ x: 0, y: 0 });
     const initialBoxRef = useRef({ width: 0, height: 0, x: 0, y: 0 });
+    const hasInitializedPosition = useRef(false);
 
-    // Load saved settings
+    // Load saved settings & Smart Initial Positioning
     useEffect(() => {
         try {
             const savedSize = localStorage.getItem('mascot_blackboard_size');
             const savedOffset = localStorage.getItem('mascot_blackboard_offset');
             if (savedSize) setBoxSize(JSON.parse(savedSize));
-            if (savedOffset) setBoxOffset(JSON.parse(savedOffset));
+
+            // If no saved offset, calculate smart initial position
+            if (savedOffset) {
+                setBoxOffset(JSON.parse(savedOffset));
+                hasInitializedPosition.current = true;
+            }
         } catch (e) { console.error(e); }
     }, []);
+
+    // Smart positioning when explanation opens for the first time
+    useEffect(() => {
+        if (explanation && mascotRef.current && !hasInitializedPosition.current) {
+            // Get mascot position on screen
+            const rect = mascotRef.current.getBoundingClientRect();
+            const screenWidth = window.innerWidth;
+            const screenHeight = window.innerHeight;
+
+            // Calculate optimal position: 
+            // - Position to the upper-left of the mascot
+            // - Keep blackboard visible within screen bounds
+            // - Account for typical learning card panel on left (~600px)
+            const idealX = -boxSize.width - 20; // 20px gap to the left of mascot
+            const idealY = -boxSize.height + size / 2; // Align bottom of blackboard near mascot center
+
+            // Ensure the blackboard won't go off-screen (left edge)
+            const actualX = Math.max(-rect.left + 20, idealX);
+            // Ensure the blackboard won't go off-screen (top edge) 
+            const actualY = Math.max(-rect.top + 80, idealY);
+
+            setBoxOffset({ x: actualX, y: actualY });
+            hasInitializedPosition.current = true;
+        }
+    }, [explanation, boxSize.width, boxSize.height, size]);
 
     // Global Event Listeners for Drag/Resize
     useEffect(() => {

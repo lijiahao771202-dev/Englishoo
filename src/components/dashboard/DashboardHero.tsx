@@ -48,7 +48,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
         <div className="relative w-full mb-12">
             {/* Main Glass Container - Pink/Rose Theme */}
             <motion.div
-                initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 className="relative rounded-[2.5rem] overflow-hidden"
             >
@@ -64,7 +64,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                     {/* Top Row: Date Badge + Actions */}
                     <div className="flex justify-between items-start mb-8">
                         <motion.div
-                            initial={{ opacity: 0, x: -20 }}
+                            initial={false}
                             animate={{ opacity: 1, x: 0 }}
                             className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold uppercase tracking-widest text-pink-100/70"
                         >
@@ -72,7 +72,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
                         </motion.div>
 
                         <motion.div
-                            initial={{ opacity: 0, x: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, x: 0 }}
                             className="flex gap-3"
                         >
@@ -94,7 +94,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
                     {/* Greeting */}
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={false}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.1 }}
                         className="mb-10"
@@ -112,7 +112,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
                         {/* Streak */}
                         <motion.div
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.2 }}
                             className="relative p-5 rounded-2xl bg-rose-500/5 border border-rose-200/10 backdrop-blur-xl group hover:bg-rose-500/10 transition-all shadow-sm"
@@ -131,7 +131,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
                         {/* Due */}
                         <motion.div
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.25 }}
                             className="relative p-5 rounded-2xl bg-pink-500/5 border border-pink-200/10 backdrop-blur-xl group hover:bg-pink-500/10 transition-all shadow-sm"
@@ -156,7 +156,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing }: Dashbo
 
                         {/* New */}
                         <motion.div
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.3 }}
                             className="relative p-5 rounded-2xl bg-purple-500/5 border border-purple-200/10 backdrop-blur-xl group hover:bg-purple-500/10 transition-all shadow-sm"

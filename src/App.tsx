@@ -989,7 +989,7 @@ function AppContent() {
                     {view === 'decks' && (
                         <motion.div
                             key="decks"
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -20 }}
                             transition={{ duration: 0.3 }}
@@ -1006,7 +1006,7 @@ function AppContent() {
                     {view === 'knowledge-graph' && (
                         <motion.div
                             key="knowledge-graph"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}
@@ -1024,7 +1024,7 @@ function AppContent() {
                     {view === 'deck-detail' && currentDeckId && (
                         <motion.div
                             key="deck-detail"
-                            initial={{ opacity: 0, x: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
                             transition={{ duration: 0.3 }}
@@ -1056,7 +1056,7 @@ function AppContent() {
                     {view === 'review-dashboard' && currentDeckId && (
                         <motion.div
                             key="review-dashboard"
-                            initial={{ opacity: 0, x: 20 }}
+                            initial={false}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
                             transition={{ duration: 0.3 }}
@@ -1079,7 +1079,7 @@ function AppContent() {
                     {view === 'deck-clusters' && currentDeckId && (
                         <motion.div
                             key="deck-clusters"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}
@@ -1099,7 +1099,7 @@ function AppContent() {
                     {view === 'guided-learning' && (
                         <motion.div
                             key="guided-learning"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}
@@ -1123,7 +1123,7 @@ function AppContent() {
                     {view === 'shadowing' && (
                         <motion.div
                             key="shadowing"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}
@@ -1140,7 +1140,7 @@ function AppContent() {
                     {view === 'teaching' && (
                         <motion.div
                             key="teaching"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}
@@ -1169,7 +1169,7 @@ function AppContent() {
                     {view === 'review' && sessionQueue.length > 0 && (
                         <motion.div
                             key="review"
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={false}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 1.05 }}
                             transition={{ duration: 0.3 }}

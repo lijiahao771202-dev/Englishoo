@@ -72,7 +72,7 @@ interface SessionItem {
 }
 
 export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, sessionGroups, onUpdateCard, sessionMode = 'mixed', initialGroupIndex }: GuidedLearningSessionProps) {
-    const [mode, setMode] = useState<'map' | 'session'>('map');
+    const [mode, setMode] = useState<'map' | 'session'>('session'); // Default to session mode directly
     const [levels, setLevels] = useState<CurriculumLevel[]>([]);
     const [currentLevel, setCurrentLevel] = useState<CurriculumLevel | null>(null);
     const [deckName, setDeckName] = useState('');
@@ -133,6 +133,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const cardLoadedTimeRef = useRef<number>(Date.now());
     // [Feature I] 老师模式状态
     const [isTeacherMode, setIsTeacherMode] = useState(false);
+    // [Feature] 知识网络显示开关
+    const [isGraphVisible, setIsGraphVisible] = useState(true);
 
     // [NEW] AI Graph Cache (L1 - Memory)
     const aiCacheRef = useRef<Map<string, any>>(new Map());
@@ -2882,6 +2884,22 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 </div>
                 <div className="flex-1" />
                 <div className="flex items-center gap-4 mr-4">
+                    {/* 知识网络开关 */}
+                    <button
+                        onClick={() => setIsGraphVisible(!isGraphVisible)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 ${isGraphVisible
+                            ? "bg-blue-500/20 border-blue-500/50 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+                            : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60"
+                            }`}
+                        title="开启/关闭知识网络"
+                    >
+                        <span className="text-lg">🕸️</span>
+                        <span className="text-xs font-bold">知识网络</span>
+                        <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${isGraphVisible ? "bg-blue-500" : "bg-white/20"}`}>
+                            <div className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${isGraphVisible ? "translate-x-4" : "translate-x-0"}`} />
+                        </div>
+                    </button>
+
                     {/* [Feature I] 老师模式开关 */}
                     <button
                         onClick={() => {
@@ -3204,9 +3222,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                 {/* Right: Mind Map (Background Layer) */}
                 <div className={cn(
-                    "absolute inset-0 z-0 transition-all duration-500 ease-in-out w-full h-full"
+                    "absolute inset-0 z-0 transition-all duration-500 ease-in-out w-full h-full",
+                    !isGraphVisible && "opacity-0 pointer-events-none"
                 )} ref={containerRef}>
-                    {graphData && (
+                    {graphData && isGraphVisible && (
                         <ForceGraph2D
                             ref={graphRef}
                             graphData={graphData}
@@ -3426,15 +3445,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     isTeacher={isTeacherMode}
                 />
 
-                {/* Settings Button (Top Left next to Back) */}
-                <div className="absolute top-4 left-16 z-50">
-                    <button
-                        onClick={() => setShowSettings(true)}
-                        className="p-2 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all border border-white/10"
-                    >
-                        <SettingsIcon className="w-5 h-5" />
-                    </button>
-                </div>
+
+                {/* Settings Button removed - access settings from header instead */}
 
                 {/* Settings Modal */}
                 {showSettings && (

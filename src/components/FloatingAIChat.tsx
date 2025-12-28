@@ -496,6 +496,7 @@ export function FloatingAIChat({
                 // [Visual Optimization] 关闭时立即收起讲解气泡
                 if (!isTeacherMode) {
                     setExplanationText(undefined);
+                    setIsExplanationVisible(false); // [Fix] Also hide the bubble container
                     if (abortControllerRef.current) {
                         abortControllerRef.current.abort();
                         abortControllerRef.current = null;
