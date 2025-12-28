@@ -11,7 +11,7 @@ import { Deck3DCard } from './dashboard/Deck3DCard';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 interface DeckListProps {
-  onSelectDeck: (deckId: string) => void;
+  onSelectDeck: (deck: Deck) => void;
   onOpenKnowledgeGraph: () => void;
   onOpenShadowing: () => void;
   onStartQuickSession?: (type: 'review' | 'new') => void;
@@ -23,6 +23,7 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
   const [newDeckName, setNewDeckName] = useState('');
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedProgress, setSeedProgress] = useState({ current: 0, total: 0, word: '' });
+  const [isLoading, setIsLoading] = useState(true);
 
   // Global Stats
   const [globalStats, setGlobalStats] = useState({
@@ -37,6 +38,7 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
   }, []);
 
   const loadData = async () => {
+    setIsLoading(true);
     try {
       const allDecks = await getAllDecks();
 
@@ -97,6 +99,8 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
 
     } catch (error) {
       console.error("Failed to load decks:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -165,8 +169,22 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
     }
   }
 
+  // Loading State - Clean minimal loader
+  if (isLoading) {
+    return (
+      <div className="w-full max-w-5xl mx-auto px-4 py-8 min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-white/50">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          <span className="text-sm">加载中...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-500">
+    <div
+      className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8"
+    >
 
       {/* 1. Hero / Command Center */}
       <DashboardHero
@@ -268,7 +286,7 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
                     "六级核心词 (CET-6)": "六级",
                   }[deck.name] || deck.name
                 }}
-                onClick={() => onSelectDeck(deck.id)}
+                onClick={() => onSelectDeck(deck)}
                 onDelete={(e) => handleDeleteDeck(e, deck.id, deck.name)}
               />
             ))}

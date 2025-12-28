@@ -4,7 +4,7 @@
  * 支持实时预览和恢复默认设置。
  */
 import { useState, useEffect } from 'react';
-import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2, Keyboard, Smile, UploadCloud, DownloadCloud } from 'lucide-react';
+import { X, RotateCcw, Save, Database, Palette, Loader2, BrainCircuit, Key, Volume2, Keyboard, Smile, UploadCloud, DownloadCloud, Image as ImageIcon } from 'lucide-react';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { importCustomDeck } from '@/lib/import-custom';
 import type { EmbeddingConfig } from '@/lib/embedding';
@@ -61,6 +61,30 @@ export const DEFAULT_SETTINGS: LiquidGlassSettings = {
   backgroundImage: '',
 };
 
+// 🌿 20 Curated Nature Presets (High Quality Unsplash)
+const NATURE_PRESETS = [
+  { name: 'Mountain Lake', url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80' },
+  { name: 'Forest Mist', url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80' },
+  { name: 'Tropical Beach', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920&q=80' },
+  { name: 'Snowy Peaks', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1920&q=80' },
+  { name: 'Desert Dunes', url: 'https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?w=1920&q=80' },
+  { name: 'Deep Space', url: 'https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?w=1920&q=80' },
+  { name: 'Autumn Forest', url: 'https://images.unsplash.com/photo-1507272931001-fc06c17e4f43?w=1920&q=80' },
+  { name: 'Waterfall', url: 'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1920&q=80' },
+  { name: 'Green Valley', url: 'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=1920&q=80' },
+  { name: 'Ocean Waves', url: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1920&q=80' },
+  { name: 'Sunset Clouds', url: 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1920&q=80' },
+  { name: 'Northern Lights', url: 'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=1920&q=80' },
+  { name: 'Bamboo Forest', url: 'https://images.unsplash.com/photo-1588612502805-be1435272304?w=1920&q=80' },
+  { name: 'Cherry Blossoms', url: 'https://images.unsplash.com/photo-1522383225653-ed111181a951?w=1920&q=80' },
+  { name: 'Rainy City', url: 'https://images.unsplash.com/photo-1515169067750-d51a73b50981?w=1920&q=80' },
+  { name: 'Lavender Field', url: 'https://images.unsplash.com/photo-1499002238440-d264edd596ec?w=1920&q=80' },
+  { name: 'Blue Ridge', url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1920&q=80' },
+  { name: 'Canyon Sun', url: 'https://images.unsplash.com/photo-1474552226712-ac0f0961a954?w=1920&q=80' },
+  { name: 'Island Aerial', url: 'https://images.unsplash.com/photo-1559128010-7c1ad6e1b6a5?w=1920&q=80' },
+  { name: 'Mossy Stream', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&q=80' },
+];
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -91,105 +115,15 @@ export function SettingsModal({
   const [activeTab, setActiveTab] = useState<'visual' | 'data' | 'algo' | 'api' | 'audio' | 'hotkey' | 'mascot'>('visual');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, word: '' });
-  const [bgUrlInput, setBgUrlInput] = useState('');
   const [tokenSaverMode, setTokenSaverMode] = useState(() => localStorage.getItem('token_saver_mode') === 'true');
-
-  // 背景图历史记录 (1天有效期)
-  const [bgHistory, setBgHistory] = useState<Array<{ url: string; timestamp: number }>>([]);
-  const BG_HISTORY_KEY = 'background-history';
-  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-  // 加载并清理过期的背景历史
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(BG_HISTORY_KEY);
-      if (saved) {
-        const parsed: Array<{ url: string; timestamp: number }> = JSON.parse(saved);
-        // 过滤掉超过1天的记录
-        const now = Date.now();
-        const valid = parsed.filter(item => (now - item.timestamp) < ONE_DAY_MS);
-        setBgHistory(valid);
-        // 保存清理后的结果
-        localStorage.setItem(BG_HISTORY_KEY, JSON.stringify(valid));
-      }
-    } catch (e) { /* ignore */ }
-  }, [isOpen]); // 每次打开时检查
-
-  // 保存背景到历史
-  const saveBgToHistory = (url: string) => {
-    if (!url || url.startsWith('data:')) return; // 不保存空或 base64 (太大)
-    setBgHistory(prev => {
-      // 移除重复
-      const filtered = prev.filter(item => item.url !== url);
-      // 添加新的到开头
-      const updated = [{ url, timestamp: Date.now() }, ...filtered].slice(0, 8); // 最多8个
-      localStorage.setItem(BG_HISTORY_KEY, JSON.stringify(updated));
-      return updated;
-    });
-  };
 
   if (!isOpen) return null;
 
   const handleChange = (key: keyof LiquidGlassSettings, value: number | string) => {
-    // 如果是更换背景图，保存到历史
-    if (key === 'backgroundImage' && typeof value === 'string' && value) {
-      saveBgToHistory(value);
-    }
     onSettingsChange({
       ...settings,
       [key]: value,
     });
-  };
-
-  // Helper: Compress Image using Canvas
-  const compressImage = (file: File, maxWidth = 1920, quality = 0.7): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          // Resize logic
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            reject(new Error("Failed to get canvas context"));
-            return;
-          }
-          ctx.drawImage(img, 0, 0, width, height);
-          // Compress
-          const dataUrl = canvas.toDataURL('image/jpeg', quality);
-          resolve(dataUrl);
-        };
-        img.onerror = (e) => reject(e);
-      };
-      reader.onerror = (e) => reject(e);
-    });
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Show loading or status could be good, but here we just process
-    try {
-      const compressedDataUrl = await compressImage(file);
-      handleChange('backgroundImage', compressedDataUrl);
-    } catch (err) {
-      console.error("Compression failed:", err);
-      alert("图片处理失败，请重试或更换图片。");
-    }
   };
 
   const handleEmbeddingChange = (key: keyof EmbeddingConfig, value: number) => {
@@ -262,49 +196,49 @@ export function SettingsModal({
         <div className="grid grid-cols-3 gap-2 p-3 border-b border-white/5 bg-black/20">
           <button
             onClick={() => setActiveTab('visual')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'visual' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'visual' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Palette className="w-3.5 h-3.5" /> 界面
           </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'data' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'data' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Database className="w-3.5 h-3.5" /> 数据
           </button>
           <button
             onClick={() => setActiveTab('algo')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'algo' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'algo' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <BrainCircuit className="w-3.5 h-3.5" /> 算法
           </button>
           <button
             onClick={() => setActiveTab('api')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'api' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'api' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Key className="w-3.5 h-3.5" /> API
           </button>
           <button
             onClick={() => setActiveTab('audio')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'audio' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'audio' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Volume2 className="w-3.5 h-3.5" /> 音效
           </button>
           <button
             onClick={() => setActiveTab('hotkey')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'hotkey' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'hotkey' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Keyboard className="w-3.5 h-3.5" /> 快捷键
           </button>
           <button
             onClick={() => setActiveTab('mascot')}
-            className={`py - 2 rounded - xl text - xs font - bold flex items - center justify - center gap - 2 transition - all ${activeTab === 'mascot' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
+            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'mascot' ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-200 border border-pink-500/20 shadow-sm' : 'text-white/40 hover:text-white hover:bg-white/5'} `}
           >
             <Smile className="w-3.5 h-3.5" /> 吉祥物
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-none">
           {activeTab === 'mascot' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               {/* Preview Area */}
@@ -398,7 +332,7 @@ export function SettingsModal({
                       key={skin.id}
                       onClick={() => onMascotConfigChange({ skinId: skin.id })}
                       disabled={!skin.unlocked}
-                      className={`relative group p - 3 rounded - xl border transition - all duration - 200 flex flex - col items - center gap - 2
+                      className={`relative group p-3 rounded-xl border transition-all duration-200 flex flex-col items-center gap-2
                         ${mascotConfig.skinId === skin.id
                           ? 'bg-pink-500/20 border-pink-500/50 shadow-[0_0_15px_rgba(236,72,153,0.2)]'
                           : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
@@ -409,7 +343,7 @@ export function SettingsModal({
                       <div className="text-2xl filter drop-shadow-lg group-hover:scale-110 transition-transform">
                         {skin.emoji}
                       </div>
-                      <div className={`text - xs font - medium ${mascotConfig.skinId === skin.id ? 'text-pink-200' : 'text-white/60'} `}>
+                      <div className={`text-xs font-medium ${mascotConfig.skinId === skin.id ? 'text-pink-200' : 'text-white/60'} `}>
                         {skin.name}
                       </div>
 
@@ -435,327 +369,75 @@ export function SettingsModal({
           )}
 
           {activeTab === 'visual' && (
-            <div className="space-y-8">
-              {/* Background Image Settings */}
-              <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  自定义背景
-                </h3>
-
-                {/* 1. File Upload with Compression */}
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">上传图片 (自动压缩适配)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="block w-full text-xs text-slate-500
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded-full file:border-0
-                      file:text-xs file:font-semibold
-                      file:bg-pink-500/20 file:text-pink-400
-                      hover:file:bg-pink-500/30"
-                  />
-                  <p className="text-[10px] text-white/30">支持大图上传，系统将自动优化至 1080P 以节省空间。</p>
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {/* Background Selection Grid */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-pink-400" /> 背景选择
+                  </h3>
+                  <button
+                    onClick={() => handleChange('backgroundImage', '')}
+                    className="text-[10px] px-2 py-1 rounded-full border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    恢复默认
+                  </button>
                 </div>
 
-                {/* 2. URL Input */}
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">或者输入图片链接</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={bgUrlInput}
-                      onChange={(e) => setBgUrlInput(e.target.value)}
-                      placeholder="https://..."
-                      className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-xs"
-                    />
-                    <button
-                      onClick={() => handleChange('backgroundImage', bgUrlInput)}
-                      className="px-3 py-2 bg-pink-500/20 text-pink-300 rounded-lg text-xs hover:bg-pink-500/30"
-                    >
-                      应用
-                    </button>
-                  </div>
-                </div>
 
-                {/* 3. 最近使用的背景 (History) */}
-                {bgHistory.length > 0 && (
-                  <div className="space-y-2 mt-4">
-                    <label className="text-xs text-white/60">最近使用 (24小时内)</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {bgHistory.map((item, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleChange('backgroundImage', item.url)}
-                          className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity group"
-                        >
-                          <img
-                            src={item.url}
-                            alt={`历史背景 ${idx + 1} `}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                            onError={(e) => {
-                              // 图片加载失败时隐藏
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                          {settings.backgroundImage === item.url && (
-                            <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
-                          )}
-                          {/* 时间戳显示 */}
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white/70 px-1 py-0.5 truncate">
-                            {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </button>
-                      ))}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Default/Empty Option */}
+                  <button
+                    onClick={() => handleChange('backgroundImage', '')}
+                    className={`aspect-square rounded-xl border relative overflow-hidden group transition-all duration-300
+                      ${settings.backgroundImage === ''
+                        ? 'border-pink-500 ring-2 ring-pink-500/20'
+                        : 'border-white/10 hover:border-white/30'}
+                    `}
+                  >
+                    <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center gap-2">
+                      <div className="w-8 h-8 rounded-full border border-white/10 bg-white/5 flex items-center justify-center">
+                        <X className="w-4 h-4 text-white/30" />
+                      </div>
+                      <span className="text-[10px] text-white/40 font-medium">无背景</span>
                     </div>
-                  </div>
-                )}
+                  </button>
 
-                {/* 4. Presets & Tools */}
-                <div className="space-y-2 mt-4">
-                  <label className="text-xs text-white/60">精选壁纸 & 工具</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {/* Default */}
+                  {/* Curated Nature Presets */}
+                  {NATURE_PRESETS.map((preset, idx) => (
                     <button
-                      onClick={() => handleChange('backgroundImage', '')}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-slate-800 flex items-center justify-center group"
+                      key={idx}
+                      onClick={() => handleChange('backgroundImage', preset.url)}
+                      className={`aspect-square rounded-xl border relative overflow-hidden group transition-all duration-300
+                        ${settings.backgroundImage === preset.url
+                          ? 'border-pink-500 ring-2 ring-pink-500/20 scale-[0.98]'
+                          : 'border-white/10 hover:border-white/30 hover:scale-[1.02]'}
+                      `}
                     >
-                      <div className="text-[10px] text-white/50 group-hover:text-white">默认</div>
-                      {settings.backgroundImage === '' && (
-                        <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
+                      <img
+                        src={preset.url.replace('w=1920', 'w=400')} // Use smaller thumbnail
+                        alt={preset.name}
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        loading="lazy"
+                      />
+
+                      {/* Name Overlay (Hover) */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center p-2">
+                        <span className="text-[10px] text-white/90 font-medium truncate w-full text-center">
+                          {preset.name}
+                        </span>
+                      </div>
+
+                      {/* Active Indicator */}
+                      {settings.backgroundImage === preset.url && (
+                        <div className="absolute inset-0 border-2 border-pink-500 rounded-xl bg-pink-500/10 backdrop-blur-[1px]" />
                       )}
                     </button>
-
-                    {/* Bing Daily */}
-                    <button
-                      onClick={() => handleChange('backgroundImage', 'https://bing.biturl.top/?resolution=1920&format=image&index=0&mkt=zh-CN')}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-[#008373]/20 flex flex-col items-center justify-center gap-1 group"
-                      title="Bing 每日一图"
-                    >
-                      <div className="font-bold text-xs text-[#008373] group-hover:text-[#00a896]">Bing</div>
-                      <div className="text-[8px] text-white/50">每日</div>
-                    </button>
-
-                    {/* Bing Random (Past Week) */}
-                    <button
-                      onClick={() => {
-                        // Bing API only supports index 0-7 (past 8 days)
-                        const randomIndex = Math.floor(Math.random() * 8);
-                        const url = `https://bing.biturl.top/?resolution=1920&format=image&index=${randomIndex}&mkt=zh-CN&t=${Date.now()}`;
-                        handleChange('backgroundImage', url);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="Bing 随机一周"
-                    >
-                      <div className="font-bold text-xs text-blue-400 group-hover:text-blue-300">Bing</div>
-                      <div className="text-[8px] text-white/50">随机一周</div>
-                    </button >
-
-                    {/* Random Nature (Lorem Picsum - Reliable Free API) */}
-                    < button
-                      onClick={() => {
-                        // Lorem Picsum provides reliable random nature/landscape images
-                        const randomId = Math.floor(Math.random() * 1000);
-                        const url = `https://picsum.photos/seed/${randomId}/1920/1080`;
-                        handleChange('backgroundImage', url);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="随机风景壁纸"
-                    >
-                      <div className="font-bold text-xs text-emerald-400 group-hover:text-emerald-300">🌿</div>
-                      <div className="text-[8px] text-white/50">随机风景</div>
-                    </button >
-
-                    {/* Curated High-Quality Wallpapers (Handpicked) */}
-                    < button
-                      onClick={() => {
-                        // Curated list of stunning wallpapers from Unsplash (verified high-quality)
-                        const curatedWallpapers = [
-                          'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80', // Mountains
-                          'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1920&q=80', // Foggy forest
-                          'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=1920&q=80', // Lake sunset
-                          'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1920&q=80', // Starry mountain
-                          'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1920&q=80', // Aurora
-                          'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1920&q=80', // Mountain peak
-                          'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1920&q=80', // Lake mountains
-                          'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=1920&q=80', // Misty lake
-                          'https://images.unsplash.com/photo-1518173946687-a4c47f766d66?w=1920&q=80', // Northern lights
-                          'https://images.unsplash.com/photo-1536431311719-398b6704d4cc?w=1920&q=80', // Colorful sky
-                          'https://images.unsplash.com/photo-1542224566-6e85f2e6772f?w=1920&q=80', // Milky way
-                          'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=1920&q=80', // Beach sunset
-                          'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1920&q=80', // Mountains golden
-                          'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1920&q=80', // Waterfall
-                          'https://images.unsplash.com/photo-1475924156734-496f6cac6ec1?w=1920&q=80', // Desert dunes
-                        ];
-                        const randomUrl = curatedWallpapers[Math.floor(Math.random() * curatedWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-amber-500/20 to-rose-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="精选高清壁纸 (随机)"
-                    >
-                      <div className="font-bold text-xs text-amber-400 group-hover:text-amber-300">✨</div>
-                      <div className="text-[8px] text-white/50">精选壁纸</div>
-                    </button >
-
-                    {/* 动漫风格 (Anime Style from waifu.im) */}
-                    < button
-                      onClick={() => {
-                        const categories = ['waifu', 'maid', 'uniform'];
-                        const category = categories[Math.floor(Math.random() * categories.length)];
-                        const url = `https://api.waifu.im/search?included_tags=${category}&width=>=1920&height=>=1080&is_nsfw=false&t=${Date.now()}`;
-                        fetch(url)
-                          .then(res => res.json())
-                          .then(data => {
-                            if (data.images && data.images[0]) {
-                              handleChange('backgroundImage', data.images[0].url);
-                            }
-                          })
-                          .catch(() => {
-                            // Fallback to static anime wallpaper
-                            handleChange('backgroundImage', 'https://w.wallhaven.cc/full/ex/wallhaven-exolv8.jpg');
-                          });
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-pink-500/20 to-purple-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="动漫壁纸"
-                    >
-                      <div className="font-bold text-xs text-pink-400 group-hover:text-pink-300">🎨</div>
-                      <div className="text-[8px] text-white/50">动漫</div>
-                    </button >
-
-                    {/* 抽象艺术 (Abstract Art) */}
-                    < button
-                      onClick={() => {
-                        const abstractWallpapers = [
-                          'https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=1920&q=80', // Fluid art
-                          'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=1920&q=80', // Gradient waves
-                          'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=80', // Colorful gradient
-                          'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=80', // Purple gradient
-                          'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?w=1920&q=80', // 3D abstract
-                          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1920&q=80', // Geometric
-                          'https://images.unsplash.com/photo-1620121692029-d088224ddc74?w=1920&q=80', // Neon abstract
-                          'https://images.unsplash.com/photo-1604076913837-52ab5629fba9?w=1920&q=80', // Marble art
-                        ];
-                        const randomUrl = abstractWallpapers[Math.floor(Math.random() * abstractWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="抽象艺术壁纸"
-                    >
-                      <div className="font-bold text-xs text-violet-400 group-hover:text-violet-300">🎭</div>
-                      <div className="text-[8px] text-white/50">抽象艺术</div>
-                    </button >
-
-                    {/* 城市夜景 (City Night) */}
-                    < button
-                      onClick={() => {
-                        const cityWallpapers = [
-                          'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1920&q=80', // Tokyo night
-                          'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=1920&q=80', // NYC skyline
-                          'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=1920&q=80', // City lights
-                          'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=1920&q=80', // Sunset city
-                          'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1920&q=80', // Urban night
-                          'https://images.unsplash.com/photo-1470219556762-1771e7f9427d?w=1920&q=80', // Bridge at night
-                          'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=1920&q=80', // Neon city
-                          'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=1920&q=80', // Hong Kong
-                        ];
-                        const randomUrl = cityWallpapers[Math.floor(Math.random() * cityWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="城市夜景壁纸"
-                    >
-                      <div className="font-bold text-xs text-cyan-400 group-hover:text-cyan-300">🌃</div>
-                      <div className="text-[8px] text-white/50">城市夜景</div>
-                    </button >
-
-                    {/* 星空银河 (Galaxy & Stars) */}
-                    < button
-                      onClick={() => {
-                        const spaceWallpapers = [
-                          'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=80', // Milky way
-                          'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920&q=80', // Galaxy
-                          'https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?w=1920&q=80', // Stars
-                          'https://images.unsplash.com/photo-1465101162946-4377e57745c3?w=1920&q=80', // Nebula
-                          'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80', // Earth from space
-                          'https://images.unsplash.com/photo-1516339901601-2e1b62dc0c45?w=1920&q=80', // Aurora stars
-                          'https://images.unsplash.com/photo-1507400492013-162706c8c05e?w=1920&q=80', // Deep space
-                          'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1920&q=80', // Colorful space
-                        ];
-                        const randomUrl = spaceWallpapers[Math.floor(Math.random() * spaceWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="星空银河壁纸"
-                    >
-                      <div className="font-bold text-xs text-indigo-400 group-hover:text-indigo-300">🌌</div>
-                      <div className="text-[8px] text-white/50">星空银河</div>
-                    </button >
-
-                    {/* 极简渐变 (Minimal Gradient) */}
-                    < button
-                      onClick={() => {
-                        const gradientWallpapers = [
-                          'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=80', // Purple gradient
-                          'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=80', // Colorful gradient
-                          'https://images.unsplash.com/photo-1557683316-973673baf926?w=1920&q=80', // Blue gradient
-                          'https://images.unsplash.com/photo-1557683311-eac922347aa1?w=1920&q=80', // Orange gradient
-                          'https://images.unsplash.com/photo-1557682224-5b8590cd9ec5?w=1920&q=80', // Green gradient
-                          'https://images.unsplash.com/photo-1557682260-96773eb01377?w=1920&q=80', // Pink gradient
-                        ];
-                        const randomUrl = gradientWallpapers[Math.floor(Math.random() * gradientWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-rose-500/20 to-orange-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="极简渐变壁纸"
-                    >
-                      <div className="font-bold text-xs text-rose-400 group-hover:text-rose-300">🌈</div>
-                      <div className="text-[8px] text-white/50">极简渐变</div>
-                    </button >
-
-                    {/* 海洋沙滩 (Ocean & Beach) */}
-                    < button
-                      onClick={() => {
-                        const oceanWallpapers = [
-                          'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920&q=80', // Tropical beach
-                          'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1920&q=80', // Ocean waves
-                          'https://images.unsplash.com/photo-1519046904884-53103b34b206?w=1920&q=80', // Beach sunset
-                          'https://images.unsplash.com/photo-1471922694854-ff1b63b20054?w=1920&q=80', // Blue ocean
-                          'https://images.unsplash.com/photo-1484291470158-b8f8d608850d?w=1920&q=80', // Underwater
-                          'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=1920&q=80', // Wave crash
-                        ];
-                        const randomUrl = oceanWallpapers[Math.floor(Math.random() * oceanWallpapers.length)];
-                        handleChange('backgroundImage', randomUrl);
-                      }}
-                      className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity bg-gradient-to-br from-sky-500/20 to-teal-500/20 flex flex-col items-center justify-center gap-1 group"
-                      title="海洋沙滩壁纸"
-                    >
-                      <div className="font-bold text-xs text-sky-400 group-hover:text-sky-300">🌊</div>
-                      <div className="text-[8px] text-white/50">海洋沙滩</div>
-                    </button >
-
-                    {/* Presets - Static preview images */}
-                    {
-                      [
-                        'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80', // Space
-                        'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800&q=80', // Starry mountain
-                        'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=800&q=80', // Tokyo
-                      ].map((url, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleChange('backgroundImage', url.replace('w=800', 'w=1920'))}
-                          className="aspect-square rounded-lg border border-white/10 overflow-hidden relative hover:opacity-80 transition-opacity"
-                        >
-                          <img src={url} alt="Preset" className="w-full h-full object-cover" />
-                          {settings.backgroundImage === url.replace('w=800', 'w=1920') && (
-                            <div className="absolute inset-0 border-2 border-pink-500 rounded-lg" />
-                          )}
-                        </button>
-                      ))
-                    }
-                  </div >
-                </div >
+                  ))}
+                </div>
+                <p className="text-[10px] text-center text-white/30 pt-2">
+                  精选 20 张高清自然风景壁纸 • Unsplash Source
+                </p>
               </div >
             </div >
           )}
@@ -1067,7 +749,7 @@ export function SettingsModal({
         </div >
 
         {/* Footer */}
-        < div className="p-6 border-t border-white/5 flex gap-3 bg-black/20" >
+        <div className="p-6 border-t border-white/5 flex gap-3 bg-black/20" >
           <button
             onClick={onRestoreDefaults}
             className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-all flex items-center justify-center gap-2 font-medium text-xs"

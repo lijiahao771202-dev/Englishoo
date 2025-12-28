@@ -66,22 +66,26 @@ export const cancelSpeech = stopAll;
 export const speak = (text: string, options: SpeakOptions = {}) => {
   if (!text) return;
 
-  // 防止快速重复调用同一个词
+  // [FIX] 时间基防抖：仅在 300ms 内的连续相同词调用才忽略
+  if (text === lastSpokenText && debounceTimeout) {
+    // 如果 debounce 计时器还在运行，说明是快速重复调用，忽略
+    console.log('[TTS] Debounce: ignoring duplicate call for', text);
+    return;
+  }
+
+  // 清除之前的 debounce 计时器
   if (debounceTimeout) {
     clearTimeout(debounceTimeout);
     debounceTimeout = null;
   }
 
-  // 如果是同一个词且在短时间内重复调用，忽略
-  if (text === lastSpokenText) {
-    // 使用 debounce 延迟执行，避免重复
-    debounceTimeout = setTimeout(() => {
-      lastSpokenText = '';
-    }, 500);
-    return;
-  }
-
   lastSpokenText = text;
+
+  // 设置新的 debounce 窗口 (300ms 内的重复调用会被忽略)
+  debounceTimeout = setTimeout(() => {
+    debounceTimeout = null;
+    lastSpokenText = ''; // 窗口结束后允许再次播放同一个词
+  }, 300);
 
   // Reset cancellation flag for new session
   isCancelled = false;

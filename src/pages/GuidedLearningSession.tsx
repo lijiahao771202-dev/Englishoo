@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject } from 'react-force-graph-2d';
 import * as d3 from 'd3-hierarchy';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, Sparkles, RotateCcw, BrainCircuit, Lock, Unlock, Star, Map as MapIcon, Volume2, Check, X, Clock, Target, ArrowRight, Loader2 } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
 import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache, forceSyncNow } from '@/lib/data-source';
@@ -127,6 +127,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [generatingLinks, setGeneratingLinks] = useState<Set<string>>(new Set());
     const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | undefined>(undefined);
     const [mascotReaction, setMascotReaction] = useState<MascotReaction>('idle');
+
+
+
     const [comboCount, setComboCount] = useState(0); // 连击计数
     const lastActivityRef = useRef<number>(Date.now()); // 最后活动时间
     // [NEW] Context Tracking
@@ -134,7 +137,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     // [Feature I] 老师模式状态
     const [isTeacherMode, setIsTeacherMode] = useState(false);
     // [Feature] 知识网络显示开关
-    const [isGraphVisible, setIsGraphVisible] = useState(true);
+    const [isGraphVisible, setIsGraphVisible] = useState(false);
 
     // [NEW] AI Graph Cache (L1 - Memory)
     const aiCacheRef = useRef<Map<string, any>>(new Map());
@@ -379,7 +382,12 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
         // 这样可以防止 handleUpdateCard 触发 sessionGroups 更新时导致的意外 loading
         if (group && group.label !== lastProcessedGroupLabelRef.current) {
             lastProcessedGroupLabelRef.current = group.label;
-            updateGraphForGroup(group);
+
+            // [FIX] Defer graph generation slightly to allow initial UI transition to complete
+            // This prevents the "stutter" on entry caused by heavy JS execution blocking the main thread
+            setTimeout(() => {
+                updateGraphForGroup(group);
+            }, 600);
         }
 
         // [FIX] Save Detailed Progress
@@ -615,11 +623,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 // 自动查找第一个未完成组
                 for (let i = 0; i < sessionGroups.length; i++) {
                     const group = sessionGroups[i];
-                    // Check against fresh data (which we updated into group.items)
-                    // [FIX] 包含 isFamiliar 检查 - 标记熟悉的卡片视为已完成
+                    // [FIX 2024-12-29] 只检查 State.New 来判断是否有未学习卡片
                     const hasUnlearned = group.items.some(c =>
-                        (c.state === State.New || c.state === State.Learning || c.state === State.Relearning)
-                        && !c.isFamiliar
+                        c.state === State.New && !c.isFamiliar
                     );
                     if (hasUnlearned) {
                         startGroupIndex = i;
@@ -629,10 +635,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 console.log(`[initSessionFromCards] 自动计算起始索引: ${startGroupIndex}`);
             }
 
-            // If all learned, start at 0
-            // [FIX] 包含 isFamiliar 检查
+            // [FIX 2024-12-29] 只基于 State.New 判断是否全部学完
             const allLearned = sessionGroups.every(g => g.items.every(c =>
-                (c.state !== State.New && c.state !== State.Learning && c.state !== State.Relearning) || c.isFamiliar
+                c.state !== State.New || c.isFamiliar
             ));
             if (allLearned) {
                 startGroupIndex = 0;
@@ -722,15 +727,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             if (!sortedItems.some(si => si.id === item.id)) sortedItems.push(item);
         });
 
-        // [FIX 2024-12-16] 恢复过滤逻辑：只加载未学习的卡片
-        // - state 为 New/Learning/Relearning 且 非 isFamiliar 才加入队列
-        // - 这样重新进入时不会从头开始，只学习剩余未完成的
+        // [FIX 2024-12-29] 学习队列只包含 State.New 的卡片
+        // - Learning/Relearning 是 FSRS 短期复习状态，应在复习模式处理
+        // - 避免已学过的卡片混入学习队列
         const unlearnedItems = sortedItems.filter(c =>
-            (c.state === State.New || c.state === State.Learning || c.state === State.Relearning)
-            && !c.isFamiliar
+            c.state === State.New && !c.isFamiliar
         );
 
-        console.log(`[loadGroupQueue] 组 ${groupIndex}: ${unlearnedItems.length}/${sortedItems.length} 张未学卡片`);
+        console.log(`[loadGroupQueue] 组 ${groupIndex}: ${unlearnedItems.length}/${sortedItems.length} 张新词（已排除 Learning/Relearning）`);
 
         // 如果组内所有卡片都已学完，队列为空，将触发组完成逻辑
         const newQueue: SessionItem[] = unlearnedItems.map(card => ({
@@ -1696,14 +1700,30 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }, [currentItem, choiceResult, choiceOptions]);
 
     // Test Logic (Spelling)
+    // [FIX] 使用 ref 追踪已播放的卡片，防止重复触发
+    const lastSpokenTestCardIdRef = useRef<string | null>(null);
+
     useEffect(() => {
         if (currentItem?.type === 'test' && inputRef.current) {
             setInputValue('');
             setTestResult(null);
-            setTimeout(() => {
-                inputRef.current?.focus();
-                speak(currentItem.card.word);
-            }, 100);
+
+            // [FIX] 只有当这是一张新的测试卡片时才播放
+            if (lastSpokenTestCardIdRef.current !== currentItem.card.id) {
+                lastSpokenTestCardIdRef.current = currentItem.card.id;
+                setTimeout(() => {
+                    inputRef.current?.focus();
+                    speak(currentItem.card.word);
+                }, 100);
+            } else {
+                // 同一张卡的重复触发，只聚焦不播放
+                setTimeout(() => inputRef.current?.focus(), 100);
+            }
+        }
+
+        // 当离开 test 阶段时重置 ref
+        if (currentItem?.type !== 'test') {
+            lastSpokenTestCardIdRef.current = null;
         }
     }, [currentItem]);
 
@@ -1756,6 +1776,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
             setTestResult('correct');
             playSpellingSuccessSound();
+
+            // [FIX] 拼写正确后念出单词
+            setTimeout(() => speak(currentItem.card.word), 200);
+
             // mascotEventBus.say( // This was moved above
             //     getMascotDialogue(comboCount >= 3 ? 'streak' : 'correct', { streak: comboCount }),
             //     comboCount >= 3 ? 'combo' : 'happy'
@@ -2408,9 +2432,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     };
 
     const handleCardPositionChange = useCallback((data: { point: { x: number; y: number }; transform: { x: number; y: number } }) => {
-        if (!graphRef.current) return;
-
         const { point, transform } = data;
+
+        // [FIX] Always persist card position first, regardless of graph visibility
+        setCardPosition(transform);
+
+        // Only adjust graph center if graph is visible and available
+        if (!graphRef.current || !isGraphVisible) return;
 
         // [MODIFIED] Composition-Aware Pan based on Card Dragging
         // 获取当前焦点锚点 (如果存在当前节点，以此为基准；否则默认为 (0,0))
@@ -2443,10 +2471,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
         // 仅平滑移动 X 轴，保持 Y 轴和 Zoom 不变，响应拖拽
         graphRef.current.centerAt(targetCenterX, anchorY, 800);
-
-        // Persist position
-        setCardPosition(transform);
-    }, [graphData, currentItem]);
+    }, [graphData, currentItem, isGraphVisible]);
 
     const renderSessionItem = () => {
         if (!currentItem) return null;
@@ -2470,7 +2495,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
             return (
                 <div className={cn(
-                    "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 transition-all duration-500",
+                    "w-full max-w-xl mx-auto h-[600px] relative perspective-1000",
                     isTeacherMode && "z-50"
                 )}>
                     <Flashcard
@@ -2574,19 +2599,20 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 <motion.div
                     drag
                     dragMomentum={false}
-                    initial={{
+                    dragElastic={0}
+                    animate={{
                         x: cardPosition?.x || 0,
                         y: cardPosition?.y || 0
                     }}
+                    transition={{ type: "tween", duration: 0 }}
                     whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
                     onDragEnd={(_, info) => {
                         const currentX = (cardPosition?.x || 0) + info.offset.x;
                         const currentY = (cardPosition?.y || 0) + info.offset.y;
                         handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
                     }}
-                    style={{ x: cardPosition?.x, y: cardPosition?.y }}
                     className={cn(
-                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab transition-all duration-500",
+                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab",
                         isTeacherMode && "z-50"
                     )}
                 >
@@ -2629,8 +2655,11 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                         }
 
                                         return (
-                                            <button
+                                            // Interaction button
+                                            <motion.button
                                                 key={option.id}
+                                                whileHover={{ scale: 1.02 }}
+                                                whileTap={{ scale: 0.98 }}
                                                 onClick={() => handleChoiceSelect(option)}
                                                 disabled={!!choiceResult}
                                                 className={cn(
@@ -2651,7 +2680,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                                 </span>
                                                 {choiceResult && isCorrect && <Check className="w-5 h-5 text-green-400" />}
                                                 {choiceResult && isSelected && !isCorrect && <X className="w-5 h-5 text-red-400" />}
-                                            </button>
+                                            </motion.button>
                                         );
                                     })}
                                 </div>
@@ -2668,19 +2697,20 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 <motion.div
                     drag
                     dragMomentum={false}
-                    initial={{
+                    dragElastic={0}
+                    animate={{
                         x: cardPosition?.x || 0,
                         y: cardPosition?.y || 0
                     }}
+                    transition={{ type: "tween", duration: 0 }}
                     whileDrag={{ scale: 1.01, cursor: 'grabbing', zIndex: 100 }}
                     onDragEnd={(_, info) => {
                         const currentX = (cardPosition?.x || 0) + info.offset.x;
                         const currentY = (cardPosition?.y || 0) + info.offset.y;
                         handleCardPositionChange({ point: info.point, transform: { x: currentX, y: currentY } });
                     }}
-                    style={{ x: cardPosition?.x, y: cardPosition?.y }}
                     className={cn(
-                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab transition-all duration-500",
+                        "w-full max-w-xl mx-auto h-[600px] relative perspective-1000 cursor-grab",
                         isTeacherMode && "z-50"
                     )}
                 >
@@ -2787,29 +2817,35 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                                 {testResult === 'correct' ? (
                                     <div className="flex gap-3 w-full animate-in slide-in-from-bottom-4 fade-in duration-300">
-                                        <button
+                                        <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
                                             onClick={handleRetrySpelling}
                                             className="flex-1 py-3.5 rounded-xl font-bold text-lg bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all duration-300"
                                         >
                                             <RotateCcw className="w-5 h-5 mx-auto" />
-                                        </button>
-                                        <button
+                                        </motion.button>
+                                        <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
                                             onClick={handleNextWord}
                                             className="flex-[3] py-3.5 rounded-xl font-bold text-lg bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:shadow-[0_0_30px_rgba(34,197,94,0.5)] transition-all duration-300 flex items-center justify-center gap-2 group"
                                         >
                                             <span>下一个</span>
                                             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                                        </button>
+                                        </motion.button>
                                     </div>
                                 ) : (
-                                    <button
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
                                         onClick={() => handleCheckSpelling()}
                                         disabled={!inputValue.trim()}
                                         className={cn(
                                             "w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 relative overflow-hidden group",
                                             "disabled:opacity-50 disabled:cursor-not-allowed",
                                             inputValue.trim()
-                                                ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] hover:scale-[1.02]"
+                                                ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)]"
                                                 : "bg-white/10 text-white/40 border border-white/5"
                                         )}
                                     >
@@ -2817,7 +2853,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                         {inputValue.trim() && (
                                             <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12" />
                                         )}
-                                    </button>
+                                    </motion.button>
                                 )}
                             </div>
                         </div>
@@ -3020,16 +3056,22 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         onMouseEnter={() => setIsHoveringCard(true)}
                         onMouseLeave={() => setIsHoveringCard(false)}
                     >
-                        <AnimatePresence mode="wait">
+                        <AnimatePresence mode="popLayout">
                             {phase === 'overview' && (
                                 <motion.div
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -20 }}
-                                    className="text-center max-w-md bg-slate-900/50 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-8"
+                                    initial={{ opacity: 0, scale: 0.9, filter: "blur(4px)" }}
+                                    animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                                    exit={{ opacity: 0, y: -20, scale: 0.95, filter: "blur(10px)" }}
+                                    transition={{
+                                        type: "spring",
+                                        stiffness: 400,
+                                        damping: 25,
+                                        mass: 0.8
+                                    }}
+                                    className="text-center max-w-md bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-8"
                                 >
-                                    <BrainCircuit className="w-24 h-24 text-blue-500 mx-auto mb-6" />
-                                    <h2 className="text-3xl font-bold text-white mb-4">
+                                    <BrainCircuit className="w-24 h-24 text-blue-500 mx-auto mb-6 drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
+                                    <h2 className="text-3xl font-bold text-white mb-4 tracking-tight">
                                         {sessionGroups && sessionGroups.length > 0
                                             ? `准备开始第 ${activeGroupIndex + 1} 组: ${sessionGroups[activeGroupIndex]?.label}`
                                             : "准备好了吗？"}
@@ -3044,12 +3086,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                             : "我们将通过思维导图引导你探索它们的联系。"}
                                     </p>
                                     <div className="flex flex-col gap-3 w-full max-w-xs mx-auto">
-                                        <button
+                                        <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
                                             onClick={handleStartLearning}
-                                            className="w-full py-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20 transition-all hover:scale-105"
+                                            className="w-full py-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/20 transition-all"
                                         >
                                             开始探索
-                                        </button>
+                                        </motion.button>
                                         {sessionGroups && activeGroupIndex < sessionGroups.length - 1 && (
                                             <button
                                                 onClick={() => {
@@ -3068,10 +3112,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                             {phase === 'word-learning' && (
                                 <motion.div
-                                    key={currentItem?.card.id || 'empty'}
-                                    initial={{ opacity: 0, x: 50 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0, x: -50 }}
+                                    key={currentItem?.card.id || 'empty-word'}
+                                    initial={{ x: 60, opacity: 0 }}
+                                    animate={{ x: 0, opacity: 1 }}
+                                    exit={{ x: -60, opacity: 0 }}
+                                    transition={{
+                                        type: "spring",
+                                        stiffness: 200,
+                                        damping: 25,
+                                        mass: 0.5,
+                                        opacity: { duration: 0.2 }
+                                    }}
                                     className="w-full"
                                 >
                                     {renderSessionItem()}
@@ -3080,8 +3131,10 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                             {phase === 'connection-learning' && (
                                 <motion.div
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
+                                    initial={{ opacity: 0, scale: 0.98 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.98 }}
+                                    transition={{ duration: 0.2 }}
                                     className="w-full max-w-md text-center"
                                 >
                                     <div className="mb-8">
@@ -3104,12 +3157,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                         })()}
                                     </div>
 
-                                    <button
+                                    <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
                                         onClick={handleNextConnection}
                                         className="px-8 py-3 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 transition-colors"
                                     >
                                         {currentConnectionIndex < connectionQueue.length - 1 ? "下一个关联" : "完成学习"}
-                                    </button>
+                                    </motion.button>
                                 </motion.div>
                             )}
 

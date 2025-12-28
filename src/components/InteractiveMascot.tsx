@@ -348,8 +348,9 @@ const MascotVisuals = React.memo(({ currentSkin, internalReaction, isDragging, i
                         {isTeacher && (
                             <motion.g key="glasses" initial={{ y: -100, opacity: 0, scale: 1.5, rotate: -15 }} animate={{ y: 0, opacity: 1, scale: 1, rotate: 0 }} exit={{ y: -60, opacity: 0, scale: 0.8, rotate: 15 }} transition={{ type: "spring", stiffness: 400, damping: 15, mass: 1.2 }}>
                                 <g transform="translate(0, -5)">
-                                    <path d="M45 105 H 85 Q 85 125, 65 125 Q 45 125, 45 105 Z" fill="#111" stroke="#111" strokeWidth="2" />
-                                    <path d="M115 105 H 155 Q 155 125, 135 125 Q 115 125, 115 105 Z" fill="#111" stroke="#111" strokeWidth="2" />
+                                    {/* 镜片 - 使用半透明黑色以便眼珠可见 */}
+                                    <path d="M45 105 H 85 Q 85 125, 65 125 Q 45 125, 45 105 Z" fill="rgba(17,17,17,0.3)" stroke="#111" strokeWidth="2" />
+                                    <path d="M115 105 H 155 Q 155 125, 135 125 Q 115 125, 115 105 Z" fill="rgba(17,17,17,0.3)" stroke="#111" strokeWidth="2" />
                                     <path d="M85 108 H 115" stroke="#111" strokeWidth="4" />
                                     <path d="M45 108 L 25 100" stroke="#111" strokeWidth="4" />
                                     <path d="M155 108 L 175 100" stroke="#111" strokeWidth="4" />
@@ -540,8 +541,7 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
         if (explanation && mascotRef.current && !hasInitializedPosition.current) {
             // Get mascot position on screen
             const rect = mascotRef.current.getBoundingClientRect();
-            const screenWidth = window.innerWidth;
-            const screenHeight = window.innerHeight;
+
 
             // Calculate optimal position: 
             // - Position to the upper-left of the mascot
@@ -728,28 +728,35 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
                 )}
             </AnimatePresence>
 
-            {/* 普通气泡 (仅在无讲解时显示) */}
+            {/* 说话浮窗 (现代液态玻璃风格，无气泡箭头) */}
             <AnimatePresence>
                 {showBubble && bubbleText && !explanation && (
                     <motion.div
-                        key="bubble"
-                        // [FIX] Adjusted position closer (-top-32 -> -top-14) and removed fixed width (w-48 -> w-auto max-w-[200px])
-                        className="absolute -top-14 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-auto max-w-[200px]"
-                        initial={{ opacity: 0, scale: 0.3, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.3, y: 10 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                        key="speech-toast"
+                        className="absolute z-40 pointer-events-none"
+                        style={{
+                            bottom: size / 2 - 20, // Center vertically with mascot
+                            right: size + 16 // Position to the left of mascot
+                        }}
+                        initial={{ opacity: 0, x: 20, scale: 0.9 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: 10, scale: 0.95 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
                     >
-                        <div className="relative bg-white border-2 border-black/80 rounded-2xl px-4 py-2 shadow-[3px_3px_0px_rgba(0,0,0,0.15)] flex items-center justify-center min-w-[40px]">
-                            <span className="font-bold text-base text-black whitespace-nowrap">
+                        <div className="relative bg-black/60 backdrop-blur-xl rounded-2xl px-4 py-3 shadow-lg border border-white/10 min-w-[120px] max-w-[220px]">
+                            {/* Ambient glow */}
+                            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+
+                            {/* Content */}
+                            <p className="text-sm text-white/90 font-medium text-center leading-relaxed relative z-10">
                                 {bubbleText}
-                            </span>
-                            {/* Adjusted arrow position to be centered relative to the bubble */}
-                            <svg className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-4 h-3" viewBox="0 0 20 15">
-                                <path d="M0 0 L10 15 L20 0 Z" fill="white" stroke="black" strokeWidth="2" />
-                                {/* Cover the border line at the top of the arrow to merge with bubble */}
-                                <path d="M2 0 L18 0" stroke="white" strokeWidth="4" />
-                            </svg>
+                            </p>
+
+                            {/* Subtle indicator dot connecting to mascot */}
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[calc(100%+4px)] flex items-center gap-1">
+                                <div className="w-1 h-1 rounded-full bg-white/30" />
+                                <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+                            </div>
                         </div>
                     </motion.div>
                 )}

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getAIContentCache, saveAIContentCache } from './db';
 
 // Use local proxy to avoid CORS issues
 const API_URL = '/api/deepseek/chat/completions';
@@ -586,10 +587,20 @@ export async function generateRelatedWords(word: string, apiKey: string): Promis
 }
 
 /**
- * @description 仅生成例句
+ * @description 仅生成例句 (带缓存)
  */
 export async function generateExample(word: string, apiKey: string): Promise<{ example: string; exampleMeaning: string }> {
   if (!apiKey) throw new Error('API Key is missing');
+
+  // 检查缓存
+  const cached = await getAIContentCache(word, 'example');
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      console.log(`[Cache Hit] Example for "${word}"`);
+      return parsed;
+    } catch { /* 缓存解析失败，重新生成 */ }
+  }
 
   const prompt = `Please provide a clear, simple example sentence for the English word "${word}" and its Chinese translation. Return strictly in JSON format: { "example": "...", "exampleMeaning": "..." }`;
 
@@ -601,6 +612,11 @@ export async function generateExample(word: string, apiKey: string): Promise<{ e
     }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
     const content = cleanJson(response.data.choices[0].message.content);
     const data = JSON.parse(content);
+
+    // 保存到缓存
+    await saveAIContentCache(word, 'example', JSON.stringify(data));
+    console.log(`[Cache Save] Example for "${word}"`);
+
     return { example: data.example, exampleMeaning: data.exampleMeaning };
   } catch (error) {
     console.error('DeepSeek API Error:', error);
@@ -659,10 +675,17 @@ export async function generateBridgingExample(
 }
 
 /**
- * @description 仅生成助记
+ * @description 仅生成助记 (带缓存)
  */
 export async function generateMnemonic(word: string, apiKey: string): Promise<string> {
   if (!apiKey) throw new Error('API Key is missing');
+
+  // 检查缓存
+  const cached = await getAIContentCache(word, 'mnemonic');
+  if (cached) {
+    console.log(`[Cache Hit] Mnemonic for "${word}"`);
+    return cached;
+  }
 
   const prompt = `
       Please provide 3 distinct and high-quality Chinese mnemonic methods (记忆法) to help remember the English word "${word}".
@@ -707,8 +730,13 @@ export async function generateMnemonic(word: string, apiKey: string): Promise<st
 
     const content = cleanJson(response.data.choices[0].message.content);
     const data = JSON.parse(content);
-    // Ensure we return a stringified JSON array for compatibility, but structured
-    return JSON.stringify(data.mnemonics || []);
+    const result = JSON.stringify(data.mnemonics || []);
+
+    // 保存到缓存
+    await saveAIContentCache(word, 'mnemonic', result);
+    console.log(`[Cache Save] Mnemonic for "${word}"`);
+
+    return result;
   } catch (error) {
     console.error('DeepSeek API Error:', error);
     throw error;
@@ -987,10 +1015,20 @@ export async function generateDerivatives(word: string, apiKey: string): Promise
 }
 
 /**
- * @description 仅生成词根词源
+ * @description 仅生成词根词源 (带缓存)
  */
 export async function generateRoots(word: string, apiKey: string): Promise<EnrichedData['roots']> {
   if (!apiKey) throw new Error('API Key is missing');
+
+  // 检查缓存
+  const cached = await getAIContentCache(word, 'roots');
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      console.log(`[Cache Hit] Roots for "${word}"`);
+      return parsed;
+    } catch { /* 缓存解析失败，重新生成 */ }
+  }
 
   const prompt = `
     Please analyze the roots/affixes for the English word "${word}".
@@ -1017,7 +1055,13 @@ export async function generateRoots(word: string, apiKey: string): Promise<Enric
       response_format: { type: "json_object" }
     }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
     const content = cleanJson(response.data.choices[0].message.content);
-    return JSON.parse(content).roots || [];
+    const roots = JSON.parse(content).roots || [];
+
+    // 保存到缓存
+    await saveAIContentCache(word, 'roots', JSON.stringify(roots));
+    console.log(`[Cache Save] Roots for "${word}"`);
+
+    return roots;
   } catch (error) {
     console.error('DeepSeek API Error:', error);
     throw error;

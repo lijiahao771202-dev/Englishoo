@@ -20,6 +20,7 @@ import { zhCN } from 'date-fns/locale';
 
 interface DeckDetailProps {
   deckId: string;
+  initialDeck?: Deck | null;
   onBack: () => void;
   onStartSession: (limits: { newLimit: number; reviewLimit: number; newGroupLimit?: number }) => void;
   onStartTeaching: (limits: { newLimit: number }) => void;
@@ -47,6 +48,7 @@ type TabType = 'due' | 'learned' | 'unlearned' | 'familiar' | 'important';
 
 export function DeckDetail({
   deckId,
+  initialDeck,
   onBack,
   onStartSession,
   onStartTeaching: _onStartTeaching,
@@ -68,7 +70,7 @@ export function DeckDetail({
   onOpenDeckClusters,
   onOpenReviewDashboard
 }: DeckDetailProps) {
-  const [deck, setDeck] = useState<Deck | null>(null);
+  const [deck, setDeck] = useState<Deck | null>(initialDeck || null);
   const [stats, setStats] = useState({ total: 0, due: 0, new: 0 });
   const [cards, setCards] = useState<WordCard[]>([]);
   // @ts-ignore
@@ -235,11 +237,20 @@ export function DeckDetail({
 
   const visibleCards = filteredCards.slice(0, displayLimit);
 
-  if (isLoading) {
-    return <div className="text-center py-20 text-white/50">加载中...</div>;
+  // Loading State - Clean minimal loader
+  if (isLoading && !deck) {
+    return (
+      <div className="w-full max-w-5xl mx-auto px-4 py-8 min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-white/50">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          <span className="text-sm">加载中...</span>
+        </div>
+      </div>
+    );
   }
 
-  if (!deck) {
+  // 2. Error State
+  if (!deck && !isLoading) {
     return (
       <div className="text-center py-20">
         <p className="text-white/50">未找到该卡包</p>
@@ -315,11 +326,11 @@ export function DeckDetail({
   }
 
   return (
-    <div className="space-y-8 pb-20">
-      {/* Header */}
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 pb-20">
+      {/* Header (Always visible if deck exists) */}
       <motion.div
         className="flex items-center gap-4"
-        initial={{ opacity: 0, y: -20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
       >
         <button
@@ -329,9 +340,9 @@ export function DeckDetail({
           <ArrowLeft className="w-6 h-6" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-white truncate">{deck.name || '未命名卡包'}</h1>
+          <h1 className="text-2xl font-bold text-white truncate">{deck!.name || '未命名卡包'}</h1>
           <p className="text-white/50 text-xs">
-            {stats.total} 单词 · {deck.description || "无描述"}
+            {stats.total > 0 ? `${stats.total} 单词` : (deck!.description || "加载中...")}
           </p>
         </div>
         <button
@@ -344,7 +355,7 @@ export function DeckDetail({
 
       {/* 1. HERO STUDY SECTION V2 (Immersive Dashboard) */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
+        initial={false}
         animate={{ opacity: 1, scale: 1 }}
         className="glass-panel p-0 relative overflow-hidden group min-h-[300px] flex flex-col"
       >
@@ -357,15 +368,15 @@ export function DeckDetail({
 
         {/* Content Container */}
         <div className="relative z-10 flex-1 flex flex-col p-8">
-          {/* Daily Progress Header */}
+          {/* Total Progress Header */}
           <div className="flex items-start justify-between mb-8">
             <div>
-              <div className="text-white/40 text-xs font-medium tracking-wider uppercase mb-1">今日目标</div>
+              <div className="text-white/40 text-xs font-medium tracking-wider uppercase mb-1">总进度</div>
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-light text-white font-outfit">
-                  {logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0}
+                  {stats.total - stats.new}
                 </span>
-                <span className="text-white/30 text-sm">/ 50</span>
+                <span className="text-white/30 text-sm">/ {stats.total}</span>
               </div>
             </div>
             {/* Circular Progress Ring */}
@@ -377,12 +388,12 @@ export function DeckDetail({
                   className="stroke-purple-500 fill-none transition-all duration-1000 ease-out"
                   strokeWidth="6"
                   strokeDasharray={175}
-                  strokeDashoffset={175 - (Math.min((logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0) / 50, 1) * 175)}
+                  strokeDashoffset={175 - (stats.total > 0 ? ((stats.total - stats.new) / stats.total) * 175 : 0)}
                   strokeLinecap="round"
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white/50">
-                {Math.round(Math.min((logs.filter(l => new Date(l.due).toDateString() === new Date().toDateString()).length || 0) / 50, 1) * 100)}%
+                {stats.total > 0 ? Math.round(((stats.total - stats.new) / stats.total) * 100) : 0}%
               </div>
             </div>
           </div>
@@ -400,14 +411,16 @@ export function DeckDetail({
                   待复习
                 </div>
               </div>
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={handleStartReview}
                 disabled={stats.due === 0}
                 className="w-full py-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-200 text-sm font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 group/btn"
               >
                 <RefreshCw className={cn("w-4 h-4", stats.due > 0 && "group-hover/btn:rotate-180 transition-transform duration-500")} />
                 开始复习
-              </button>
+              </motion.button>
             </div>
 
             {/* Learn Column */}
@@ -417,14 +430,16 @@ export function DeckDetail({
                 <div className="text-4xl font-light text-white/90 font-outfit mb-1">{stats.new}</div>
                 <div className="text-xs text-emerald-300 font-medium">新词</div>
               </div>
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={handleStartLearn}
                 disabled={stats.new === 0}
                 className="w-full py-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-200 text-sm font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2 group/btn"
               >
                 <Sparkles className="w-4 h-4 group-hover/btn:scale-110 transition-transform" />
                 学习新词
-              </button>
+              </motion.button>
             </div>
           </div>
         </div>
@@ -432,7 +447,9 @@ export function DeckDetail({
 
       {/* 2. COMMAND BAR (Horizontal Scrollable Tools) */}
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 mask-linear-fade">
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => setShowStats(true)}
           className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
@@ -442,9 +459,11 @@ export function DeckDetail({
           <div className="text-left">
             <div className="text-sm text-white font-medium">学习统计</div>
           </div>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={onOpenDeckClusters}
           className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
@@ -454,9 +473,11 @@ export function DeckDetail({
           <div className="text-left">
             <div className="text-sm text-white font-medium">单词分组</div>
           </div>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={handleBuildKnowledgeGraph}
           disabled={isBuilding}
           className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group disabled:opacity-50"
@@ -469,9 +490,11 @@ export function DeckDetail({
               {isBuilding ? `${buildProgress.current}/${buildProgress.total}` : '构建图谱'}
             </div>
           </div>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={onOpenKnowledgeGraph}
           className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
@@ -481,9 +504,11 @@ export function DeckDetail({
           <div className="text-left">
             <div className="text-sm text-white font-medium">知识图谱</div>
           </div>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={_onReadingPractice}
           className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 transition-all shrink-0 group"
         >
@@ -493,7 +518,7 @@ export function DeckDetail({
           <div className="text-left">
             <div className="text-sm text-white font-medium">阅读练习</div>
           </div>
-        </button>
+        </motion.button>
       </div>
 
       {/* FLOATING ACTION BUTTON (Add Word) */}

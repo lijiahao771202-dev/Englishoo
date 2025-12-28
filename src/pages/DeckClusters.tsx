@@ -25,6 +25,7 @@ interface EnrichedCluster extends Cluster {
     total: number;
     learned: number;
     progress: number;
+    debugMissing?: string[];
 }
 
 /**
@@ -37,8 +38,8 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
     const [loadingMessage, setLoadingMessage] = useState("正在读取分组数据...");
     const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
     const [selectedClusters, setSelectedClusters] = useState<Set<string>>(new Set());
-    const [visibleCount, setVisibleCount] = useState(24);
-    const loadMoreRef = useRef<HTMLDivElement>(null);
+    const [currentPage, setCurrentPage] = useState(0); // [PAGINATION] 当前页码，从 0 开始
+    const PAGE_SIZE = 5; // 每页显示 5 个分组
     const [cardsMap, setCardsMap] = useState<Record<string, WordCard>>({});
 
     // Graph State
@@ -48,6 +49,7 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
     const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
     const [containerDimensions, setContainerDimensions] = useState({ width: 400, height: 400 });
     const containerRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null); // [NEW] 滚动容器引用
 
     // Fetch cards to track progress - Always fetch on mount and when cards change
     const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -174,9 +176,9 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
         loadClusters();
     }, [deckId]);
 
-    // Reset visible count when clusters change
+    // Reset page when clusters change
     useEffect(() => {
-        setVisibleCount(24);
+        setCurrentPage(0);
     }, [clusters]);
 
     // Load graph data when selected cluster changes
@@ -203,25 +205,6 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
             return () => window.removeEventListener('resize', updateSize);
         }
     }, [selectedCluster, viewMode]);
-
-    // Infinite scroll observer
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting && visibleCount < clusters.length) {
-                    setVisibleCount(prev => Math.min(prev + 24, clusters.length));
-                }
-            },
-            { threshold: 0.1, rootMargin: '200px' }
-        );
-
-        if (loadMoreRef.current) {
-            observer.observe(loadMoreRef.current);
-        }
-
-        return () => observer.disconnect();
-    }, [clusters.length, visibleCount]);
-
     const loadClusters = async (forceRefresh = false) => {
         // Only reset state on force refresh to avoid flickering on normal load
         if (forceRefresh) {
@@ -321,10 +304,34 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
         }
     };
 
+    // [NEW] Sort clusters: in-progress first, then new, then completed
+    const sortedClusters = useMemo(() => {
+        return [...enrichedClusters].sort((a, b) => {
+            // Priority 1: In-progress (has some progress but not complete)
+            const aInProgress = a.progress > 0 && a.progress < 100;
+            const bInProgress = b.progress > 0 && b.progress < 100;
+            if (aInProgress && !bInProgress) return -1;
+            if (!aInProgress && bInProgress) return 1;
+
+            // Priority 2: New (0% progress) before completed (100%)
+            const aCompleted = a.progress === 100;
+            const bCompleted = b.progress === 100;
+            if (!aCompleted && bCompleted) return -1;
+            if (aCompleted && !bCompleted) return 1;
+
+            // Same status: sort by progress descending within group
+            return b.progress - a.progress;
+        });
+    }, [enrichedClusters]);
+
     // Calculate stats
     const totalGroups = clusters.length;
     const totalWords = clusters.reduce((acc, c) => acc + c.items.length, 0);
-    const visibleClusters = enrichedClusters.slice(0, visibleCount);
+
+    // [PAGINATION] 计算分页
+    const totalPages = Math.ceil(sortedClusters.length / PAGE_SIZE);
+    const startIndex = currentPage * PAGE_SIZE;
+    const visibleClusters = sortedClusters.slice(startIndex, startIndex + PAGE_SIZE);
 
     return (
         <div className="h-full flex flex-col">
@@ -424,25 +431,52 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
             ) : (
                 <div className="flex-1 overflow-hidden flex gap-6">
                     {/* Cluster Grid */}
-                    <div className={cn(
-                        "flex-1 overflow-y-auto pr-2 transition-all duration-500 custom-scrollbar",
-                        selectedCluster ? "w-1/2" : "w-full"
-                    )}>
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-5 pb-20 p-1">
+                    <div
+                        ref={scrollContainerRef}
+                        className={cn(
+                            "flex-1 overflow-y-auto pr-2 transition-all duration-500 custom-scrollbar",
+                            selectedCluster ? "w-1/2" : "w-full"
+                        )}
+                    >
+                        <motion.div
+                            className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-5 pb-20 p-1"
+                            initial="hidden"
+                            animate="visible"
+                            variants={{
+                                visible: {
+                                    transition: {
+                                        staggerChildren: 0.1
+                                    }
+                                }
+                            }}
+                        >
                             {visibleClusters.map((cluster, idx) => {
                                 const isCurrent = idx === currentClusterIndex;
                                 const isCompleted = cluster.learned === cluster.total && cluster.total > 0;
                                 const isSelected = selectedClusters.has(cluster.label);
 
-                                // Format number for watermark (e.g., 01, 02)
                                 const numberStr = String(idx + 1).padStart(2, '0');
+
+                                // Animation Variants
+                                const itemVariants = {
+                                    hidden: { opacity: 0, y: 50, scale: 0.9 },
+                                    visible: {
+                                        opacity: 1,
+                                        y: 0,
+                                        scale: 1,
+                                        transition: {
+                                            type: "spring" as const,
+                                            stiffness: 300,
+                                            damping: 20,
+                                            mass: 0.8
+                                        }
+                                    }
+                                };
 
                                 return (
                                     <motion.div
                                         key={idx}
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.4, delay: idx * 0.05 }}
+                                        variants={itemVariants}
                                         onClick={() => {
                                             setSelectedCluster(cluster);
                                             setViewMode('graph');
@@ -600,142 +634,169 @@ export function DeckClusters({ deckId, cards, onBack, onStartSession }: DeckClus
                                 )
                             })}
 
-                            {/* Sentinel for infinite scroll */}
-                            {visibleCount < clusters.length && (
-                                <div ref={loadMoreRef} className="col-span-full flex justify-center py-8">
-                                    <Loader2 className="w-8 h-8 animate-spin text-white/20" />
+                            {/* [PAGINATION] 分页控件 */}
+                            {totalPages > 1 && (
+                                <div className="col-span-full flex items-center justify-center gap-4 py-8">
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                                        disabled={currentPage === 0}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-white/10 text-white/70 hover:text-white"
+                                    >
+                                        <ArrowLeft className="w-4 h-4" />
+                                        上一页
+                                    </button>
+
+                                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 border border-white/10">
+                                        <span className="text-white/50 text-sm">第</span>
+                                        <span className="text-white font-bold">{currentPage + 1}</span>
+                                        <span className="text-white/50 text-sm">/</span>
+                                        <span className="text-white/70">{totalPages}</span>
+                                        <span className="text-white/50 text-sm">页</span>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                                        disabled={currentPage >= totalPages - 1}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-white/10 text-white/70 hover:text-white"
+                                    >
+                                        下一页
+                                        <ArrowLeft className="w-4 h-4 rotate-180" />
+                                    </button>
                                 </div>
                             )}
-                        </div>
+                        </motion.div>
                     </div>
 
                     {/* Detail Modal (Centered) via Portal */}
-                    {createPortal(
-                        <AnimatePresence>
-                            {selectedCluster && (
-                                <>
-                                    {/* Backdrop */}
-                                    <motion.div
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        exit={{ opacity: 0 }}
-                                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
-                                        onClick={() => setSelectedCluster(null)}
-                                    />
-                                    {/* Modal */}
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.9, y: "-40%", x: "-50%" }}
-                                        animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
-                                        exit={{ opacity: 0, scale: 0.9, y: "-40%", x: "-50%" }}
-                                        className="fixed left-1/2 top-1/2 w-[90vw] max-w-[600px] h-[80vh] max-h-[700px] glass-panel border border-white/20 rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[10000]"
-                                    >
-                                        <div className="p-6 border-b border-white/10 bg-white/5">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <h2 className="text-2xl font-bold text-blue-300 truncate pr-4">{selectedCluster.label}</h2>
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    <button
-                                                        onClick={() => setViewMode(viewMode === 'graph' ? 'list' : 'graph')}
-                                                        className="p-2 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
-                                                        title={viewMode === 'graph' ? "切换到列表视图" : "切换到知识网络"}
-                                                    >
-                                                        {viewMode === 'graph' ? <List className="w-5 h-5" /> : <Network className="w-5 h-5" />}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setSelectedCluster(null)}
-                                                        className="p-2 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors"
-                                                    >
-                                                        <X className="w-5 h-5" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-4 text-sm text-muted-foreground">
-                                                <span>包含 {selectedCluster.items.length} 个相关词汇</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex-1 overflow-hidden relative bg-slate-900/50" ref={containerRef}>
-                                            {viewMode === 'graph' ? (
-                                                isGraphLoading ? (
-                                                    <div className="absolute inset-0 flex items-center justify-center">
-                                                        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                                                    </div>
-                                                ) : (
-                                                    <ForceGraph2D
-                                                        ref={graphRef}
-                                                        width={containerDimensions.width}
-                                                        height={containerDimensions.height}
-                                                        graphData={graphData}
-                                                        nodeLabel="label"
-                                                        nodeRelSize={6}
-                                                        linkColor={() => 'rgba(255,255,255,0.2)'}
-                                                        nodeColor={(node: any) => {
-                                                            const item = selectedCluster.items.find(i => i.id === node.id);
-                                                            const isLearned = item && (item.state !== State.New || item.isFamiliar);
-                                                            return isLearned ? '#4ade80' : '#60a5fa'; // Green if learned, Blue if not
-                                                        }}
-                                                        nodeCanvasObject={(node: any, ctx, globalScale) => {
-                                                            const label = node.label;
-                                                            const item = selectedCluster.items.find(i => i.id === node.id);
-                                                            const isLearned = item && (item.state !== State.New || item.isFamiliar); // Check learning status
-                                                            const fontSize = 12 / globalScale;
-                                                            ctx.font = `${fontSize}px Sans-Serif`;
-                                                            const textWidth = ctx.measureText(label).width;
-                                                            const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); // some padding
-
-                                                            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-                                                            ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
-
-                                                            ctx.textAlign = 'center';
-                                                            ctx.textBaseline = 'middle';
-                                                            ctx.fillStyle = isLearned ? '#4ade80' : '#60a5fa';
-                                                            ctx.fillText(label, node.x, node.y);
-
-                                                            // Draw circle
-                                                            ctx.beginPath();
-                                                            ctx.arc(node.x, node.y, node.val * 2, 0, 2 * Math.PI, false);
-                                                            ctx.fillStyle = isLearned ? '#4ade80' : '#60a5fa';
-                                                            ctx.fill();
-                                                        }}
-                                                        nodeCanvasObjectMode={() => 'after'} // Draw after nodes
-                                                        enableNodeDrag={true}
-                                                        onNodeClick={() => {
-                                                            // Optional: Show card detail?
-                                                        }}
-                                                        onEngineStop={() => {
-                                                            if (graphRef.current) {
-                                                                graphRef.current.zoomToFit(400);
-                                                            }
-                                                        }}
-                                                        d3VelocityDecay={0.3}
-                                                        cooldownTicks={100}
-                                                        backgroundColor="rgba(0,0,0,0)"
-                                                    />
-                                                )
-                                            ) : (
-                                                <div className="h-full overflow-y-auto p-4 space-y-3">
-                                                    {selectedCluster.items.map((item) => (
-                                                        <div
-                                                            key={item.id}
-                                                            className="p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-white/5 group"
+                    {
+                        createPortal(
+                            <AnimatePresence>
+                                {selectedCluster && (
+                                    <>
+                                        {/* Backdrop */}
+                                        <motion.div
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+                                            onClick={() => setSelectedCluster(null)}
+                                        />
+                                        {/* Modal */}
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.9, y: "-40%", x: "-50%" }}
+                                            animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
+                                            exit={{ opacity: 0, scale: 0.9, y: "-40%", x: "-50%" }}
+                                            className="fixed left-1/2 top-1/2 w-[90vw] max-w-[600px] h-[80vh] max-h-[700px] glass-panel border border-white/20 rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[10000]"
+                                        >
+                                            <div className="p-6 border-b border-white/10 bg-white/5">
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <h2 className="text-2xl font-bold text-blue-300 truncate pr-4">{selectedCluster.label}</h2>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => setViewMode(viewMode === 'graph' ? 'list' : 'graph')}
+                                                            className="p-2 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+                                                            title={viewMode === 'graph' ? "切换到列表视图" : "切换到知识网络"}
                                                         >
-                                                            <div className="flex justify-between items-baseline mb-1">
-                                                                <span className="font-bold text-lg">{item.word}</span>
-                                                                <span className="text-xs text-white/40 font-mono">{item.phonetic}</span>
-                                                            </div>
-                                                            <p className="text-sm text-white/70 line-clamp-2">{item.meaning}</p>
-                                                        </div>
-                                                    ))}
+                                                            {viewMode === 'graph' ? <List className="w-5 h-5" /> : <Network className="w-5 h-5" />}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setSelectedCluster(null)}
+                                                            className="p-2 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors"
+                                                        >
+                                                            <X className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            )}
-                                        </div>
-                                    </motion.div>
-                                </>
-                            )}
-                        </AnimatePresence>,
-                        document.body
-                    )}
-                </div>
-            )}
-        </div>
+                                                <div className="flex gap-4 text-sm text-muted-foreground">
+                                                    <span>包含 {selectedCluster.items.length} 个相关词汇</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex-1 overflow-hidden relative bg-slate-900/50" ref={containerRef}>
+                                                {viewMode === 'graph' ? (
+                                                    isGraphLoading ? (
+                                                        <div className="absolute inset-0 flex items-center justify-center">
+                                                            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                                                        </div>
+                                                    ) : (
+                                                        <ForceGraph2D
+                                                            ref={graphRef}
+                                                            width={containerDimensions.width}
+                                                            height={containerDimensions.height}
+                                                            graphData={graphData}
+                                                            nodeLabel="label"
+                                                            nodeRelSize={6}
+                                                            linkColor={() => 'rgba(255,255,255,0.2)'}
+                                                            nodeColor={(node: any) => {
+                                                                const item = selectedCluster.items.find(i => i.id === node.id);
+                                                                const isLearned = item && (item.state !== State.New || item.isFamiliar);
+                                                                return isLearned ? '#4ade80' : '#60a5fa'; // Green if learned, Blue if not
+                                                            }}
+                                                            nodeCanvasObject={(node: any, ctx, globalScale) => {
+                                                                const label = node.label;
+                                                                const item = selectedCluster.items.find(i => i.id === node.id);
+                                                                const isLearned = item && (item.state !== State.New || item.isFamiliar); // Check learning status
+                                                                const fontSize = 12 / globalScale;
+                                                                ctx.font = `${fontSize}px Sans-Serif`;
+                                                                const textWidth = ctx.measureText(label).width;
+                                                                const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); // some padding
+
+                                                                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                                                                ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, bckgDimensions[0], bckgDimensions[1]);
+
+                                                                ctx.textAlign = 'center';
+                                                                ctx.textBaseline = 'middle';
+                                                                ctx.fillStyle = isLearned ? '#4ade80' : '#60a5fa';
+                                                                ctx.fillText(label, node.x, node.y);
+
+                                                                // Draw circle
+                                                                ctx.beginPath();
+                                                                ctx.arc(node.x, node.y, node.val * 2, 0, 2 * Math.PI, false);
+                                                                ctx.fillStyle = isLearned ? '#4ade80' : '#60a5fa';
+                                                                ctx.fill();
+                                                            }}
+                                                            nodeCanvasObjectMode={() => 'after'} // Draw after nodes
+                                                            enableNodeDrag={true}
+                                                            onNodeClick={() => {
+                                                                // Optional: Show card detail?
+                                                            }}
+                                                            onEngineStop={() => {
+                                                                if (graphRef.current) {
+                                                                    graphRef.current.zoomToFit(400);
+                                                                }
+                                                            }}
+                                                            d3VelocityDecay={0.3}
+                                                            cooldownTicks={100}
+                                                            backgroundColor="rgba(0,0,0,0)"
+                                                        />
+                                                    )
+                                                ) : (
+                                                    <div className="h-full overflow-y-auto p-4 space-y-3">
+                                                        {selectedCluster.items.map((item) => (
+                                                            <div
+                                                                key={item.id}
+                                                                className="p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-white/5 group"
+                                                            >
+                                                                <div className="flex justify-between items-baseline mb-1">
+                                                                    <span className="font-bold text-lg">{item.word}</span>
+                                                                    <span className="text-xs text-white/40 font-mono">{item.phonetic}</span>
+                                                                </div>
+                                                                <p className="text-sm text-white/70 line-clamp-2">{item.meaning}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    </>
+                                )}
+                            </AnimatePresence>,
+                            document.body
+                        )
+                    }
+                </div >
+            )
+            }
+        </div >
     );
 }

@@ -12,7 +12,7 @@ import { DeckDetail } from '@/components/DeckDetail';
 import { createNewWordCard, scheduleReview, Rating, getReviewPreviews } from '@/lib/fsrs';
 import { getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiveCards, initDB, SYSTEM_DECK_GUIDED } from '@/lib/data-source';
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, getDefinitionInContext } from '@/lib/deepseek';
-import type { WordCard } from '@/types';
+import type { WordCard, Deck } from './types';
 import { type RecordLog } from 'ts-fsrs';
 import { Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -27,6 +27,7 @@ import { AmbientPlayer } from '@/components/AmbientPlayer';
 import { loadMascotConfig, saveMascotConfig, type MascotConfig } from '@/lib/mascot-config';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { SessionLoading } from '@/components/SessionLoading';
 import { ReviewQueuePage } from '@/pages/ReviewQueuePage';
 import { ReviewDashboard } from '@/pages/ReviewDashboard';
 import { FloatingAIChat } from '@/components/FloatingAIChat';
@@ -55,6 +56,7 @@ function AppContent() {
     // Navigation State
     const [view, setView] = useState<View>('decks');
     const [currentDeckId, setCurrentDeckId] = useState<string | null>(null);
+    const [currentDeck, setCurrentDeck] = useState<Deck | null>(null);
 
     // Data State (Scoped to Current Deck)
     const [cards, setCards] = useState<WordCard[]>([]);
@@ -357,11 +359,15 @@ function AppContent() {
     };
 
     // Navigation Handlers
-    const handleSelectDeck = (deckId: string) => {
-        if (deckId === SYSTEM_DECK_GUIDED) {
+    const handleSelectDeck = (deckOrId: string | Deck) => {
+        if (deckOrId === SYSTEM_DECK_GUIDED) {
             setView('guided-learning');
+        } else if (typeof deckOrId === 'object') {
+            setCurrentDeckId(deckOrId.id);
+            setCurrentDeck(deckOrId);
+            setView('deck-detail');
         } else {
-            setCurrentDeckId(deckId);
+            setCurrentDeckId(deckOrId);
             setView('deck-detail');
         }
     };
@@ -965,7 +971,7 @@ function AppContent() {
             <GlobalSelectionMenu />
 
             {/* 全局 AI 聊天助手 - 上下文感知模式 */}
-            {view !== 'guided-learning' && (
+            <div style={{ visibility: view === 'guided-learning' ? 'hidden' : 'visible' }}>
                 <FloatingAIChat
                     currentView={view}
                     apiKey={apiKey}
@@ -978,21 +984,27 @@ function AppContent() {
                         totalCards: cards.length,
                     }}
                 />
-            )}
+            </div>
 
             {/* Header Removed as per user request */}
 
             {/* Main Content */}
             {/* Main Content */}
             <main className="container mx-auto px-4 pt-12 pb-12 min-h-screen">
-                <AnimatePresence mode="wait">
+                <AnimatePresence mode="popLayout">
                     {view === 'decks' && (
                         <motion.div
                             key="decks"
-                            initial={false}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
+                            initial={{ scale: 0.95, opacity: 1, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98, y: -20, transition: { duration: 0.2 } }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                mass: 1
+                            }}
+                            className="w-full h-full"
                         >
                             <DeckList
                                 onSelectDeck={handleSelectDeck}
@@ -1006,10 +1018,10 @@ function AppContent() {
                     {view === 'knowledge-graph' && (
                         <motion.div
                             key="knowledge-graph"
-                            initial={false}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 1.05 }}
-                            transition={{ duration: 0.3 }}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15, ease: "easeInOut" }}
                             className="fixed inset-0 z-50 bg-slate-900"
                         >
                             <Suspense fallback={<LoadingSpinner />}>
@@ -1024,13 +1036,20 @@ function AppContent() {
                     {view === 'deck-detail' && currentDeckId && (
                         <motion.div
                             key="deck-detail"
-                            initial={false}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -20 }}
-                            transition={{ duration: 0.3 }}
+                            initial={{ scale: 0.95, opacity: 1, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98, y: -20, transition: { duration: 0.2 } }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                mass: 1
+                            }}
+                            className="w-full h-full"
                         >
                             <DeckDetail
                                 deckId={currentDeckId}
+                                initialDeck={currentDeck}
                                 onBack={handleBackToDecks}
                                 onStartSession={handleStartSession}
                                 onStartTeaching={handleStartTeaching}
@@ -1056,10 +1075,15 @@ function AppContent() {
                     {view === 'review-dashboard' && currentDeckId && (
                         <motion.div
                             key="review-dashboard"
-                            initial={false}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -20 }}
-                            transition={{ duration: 0.3 }}
+                            initial={{ scale: 0.92, opacity: 1 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                mass: 0.5
+                            }}
                         >
                             <ReviewDashboard
                                 onBack={() => setView('deck-detail')}
@@ -1079,17 +1103,22 @@ function AppContent() {
                     {view === 'deck-clusters' && currentDeckId && (
                         <motion.div
                             key="deck-clusters"
-                            initial={false}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 1.05 }}
-                            transition={{ duration: 0.3 }}
+                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98, y: -10 }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                mass: 1
+                            }}
                             className="h-full"
                         >
                             <Suspense fallback={<LoadingSpinner />}>
                                 <DeckClusters
                                     deckId={currentDeckId}
                                     onBack={() => setView('deck-detail')}
-                                    cards={cards}
+                                    cards={cards} // Pass cards to avoid re-fetch if possible
                                     onStartSession={handleStartClusterSession}
                                 />
                             </Suspense>
@@ -1099,13 +1128,18 @@ function AppContent() {
                     {view === 'guided-learning' && (
                         <motion.div
                             key="guided-learning"
-                            initial={false}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 1.05 }}
-                            transition={{ duration: 0.3 }}
-                            className="fixed inset-0 z-50 bg-slate-50 overflow-hidden"
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 1.05, transition: { duration: 0.2 } }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                mass: 1
+                            }}
+                            className="fixed inset-0 z-50 bg-slate-950 overflow-hidden"
                         >
-                            <Suspense fallback={<LoadingSpinner />}>
+                            <Suspense fallback={<SessionLoading />}>
                                 <GuidedLearningSession
                                     onBack={() => currentDeckId ? setView('deck-detail') : setView('decks')}
                                     apiKey={apiKey}
@@ -1378,7 +1412,7 @@ function AppContent() {
                     )}
                 </AnimatePresence>
             </main>
-        </Layout>
+        </Layout >
     );
 }
 

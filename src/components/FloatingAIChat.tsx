@@ -173,6 +173,16 @@ export function FloatingAIChat({
 
     const [isOpen, setIsOpen] = useState(initiallyOpen);
     const [isDragging, setIsDragging] = useState(false); // [Performance] 优化拖拽性能
+
+    // [NEW] Mascot position persistence
+    const [mascotPosition, setMascotPosition] = useState<{ x: number; y: number }>(() => {
+        try {
+            const saved = localStorage.getItem('mascot_position');
+            if (saved) return JSON.parse(saved);
+        } catch (e) { }
+        return { x: 0, y: 0 }; // Default: no offset from initial position
+    });
+    const mascotRef = useRef<HTMLDivElement>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [activeWord, setActiveWord] = useState<string>(""); // Store current word for interaction
@@ -242,7 +252,10 @@ export function FloatingAIChat({
                 try {
                     // Import dynamically to avoid circular dependencies if any (though usually fine here)
                     const { generateMascotDialogue } = await import('@/lib/deepseek');
-                    const response = await generateMascotDialogue(scenario, context, apiKey);
+                    const response = await generateMascotDialogue({
+                        scenario: scenario,
+                        ...context
+                    }, apiKey);
 
                     if (response) {
                         // Speak it out
@@ -297,7 +310,7 @@ export function FloatingAIChat({
     // 主动推送状态
     const [hasNotifiedReview, setHasNotifiedReview] = useState(false);
 
-    // 智能推送：复习提醒
+    // 智能推送：复习提醒 (通过吉祥物说话，而非弹窗)
     useEffect(() => {
         if (!contextData || hasNotifiedReview) return;
 
@@ -308,17 +321,15 @@ export function FloatingAIChat({
             if (time >= 12 && time < 18) greeting = "下午好";
             if (time >= 18) greeting = "晚上好";
 
-            const msg = {
-                role: 'assistant' as const,
-                content: `👋 ${greeting}！发现你有 **${contextData.dueCount}** 张卡片需要复习哦。\n\n要现在的开始复习吗？`
-            };
+            const mascotMessage = `👋 ${greeting}！你有 ${contextData.dueCount} 张卡片等着复习哦~`;
 
-            // 延迟 3 秒推送，避免打扰启动
+            // 延迟 2 秒后让吉祥物说话
             const timer = setTimeout(() => {
-                setMessages(prev => [...prev, msg]);
-                setIsOpen(true); // 自动展开
+                import('@/lib/mascot-event-bus').then(({ mascotEventBus }) => {
+                    mascotEventBus.say(mascotMessage, 'happy', 5000); // 使用正确的 say 方法
+                });
                 setHasNotifiedReview(true);
-            }, 3000);
+            }, 2000);
 
             return () => clearTimeout(timer);
         }
@@ -594,23 +605,83 @@ export function FloatingAIChat({
                 // [Killer Feature] 知识关联 Context
                 const knownWords = knownWordsRef.current;
                 const knowledgeContext = knownWords.length > 0
-                    ? `\n\n[已知词库] 用户已经掌握了以下单词（部分）：${knownWords.join(', ')}。\n如果这些词中有与 "${targetWord}" 构成同义、反义或关联关系的，请**必须**在讲解中明确对比引用（例如："这个词其实就是你学过的 xxx 的升级版..."）。`
+                    ? `\n\n[已知词库] 用户已掌握：${knownWords.slice(0, 15).join(', ')}${knownWords.length > 15 ? '...' : ''}。如有相关词，请在讲解中对比引用。`
                     : "";
 
                 let personaContext = "";
                 if (userProfile.profession || userProfile.hobbies) {
-                    personaContext = `\n\n[学员画像]\n职业: ${userProfile.profession || '未知'}\n兴趣: ${userProfile.hobbies || '未知'}\n请务必尝试用**${userProfile.profession || '学员熟悉'}**领域的概念或**${userProfile.hobbies}**相关的比喻来解释这个单词，让记忆更深刻。`;
+                    personaContext = `\n\n[学员画像] 职业: ${userProfile.profession || '未知'}，兴趣: ${userProfile.hobbies || '未知'}。适当用相关领域的比喻。`;
                 }
 
-                let prompt = `你是我的英语私教。请用生动幽默的方式讲解单词 "${targetWord}"。${personaContext}${knowledgeContext}\n\n包含：\n1. 发音提示\n2. 核心含义 (${ctx.meaning || '自动推断'})\n3. 一个超好记的助记口诀\n4. 一个简短的生活例句。\n请使用 Markdown 格式，保持简短（200字以内）。`;
+                let prompt = `你是我的英语私教。请为单词 "${targetWord}" 生成一份清晰的学习笔记。${personaContext}${knowledgeContext}
+
+**严格遵循以下 Markdown 格式模板：**
+
+## 🎓 单词：${targetWord}
+
+### 📢 发音
+/音标/ （谐音助记）
+
+### 📖 核心含义
+- **含义1**：解释（关联词）
+- **含义2**：解释（如有多义）
+
+### 🔗 关联对比
+- 同义/反义/相关词的对比
+
+### 💡 助记口诀
+> "创意口诀，帮助记忆"
+
+---
+**要求：**
+1. 每个板块用 ### 二级标题分隔
+2. 含义用列表格式，加粗关键词
+3. 口诀用引用块 > 包裹
+4. 总字数控制在 200 字以内
+5. 风格生动有趣`;
 
                 // [Feature I] Handle Refinements
                 if (ctx.refineType === 'simplification') {
-                    prompt = `用户觉得刚才的讲解太难了。请用**最简单**的语言（像教5岁孩子一样）重新讲解单词 "${targetWord}"。重点放在核心概念理解上，不要用专业术语。保留一个超级简单的例句。`;
+                    prompt = `用户觉得刚才的讲解太难了。请用**最简单**的语言（像教5岁孩子一样）重新讲解单词 "${targetWord}"。
+
+**格式要求：**
+## 🍼 简单版：${targetWord}
+### 是什么？
+用一句话解释
+
+### 怎么记？
+> 简单口诀
+
+### 造个句
+一个超简单的例句`;
                 } else if (ctx.refineType === 'example') {
-                    prompt = `用户想要更多例子。请给出 "${targetWord}" 的 3 个不同场景下的生活例句（中英对照）。并简要说明每个场景的细微差别。`;
+                    prompt = `用户想要更多例句。请给出 "${targetWord}" 的 3 个不同场景例句。
+
+**格式要求：**
+## 📝 例句拓展：${targetWord}
+
+### 场景1：日常生活
+- 英文例句
+- 中文翻译
+
+### 场景2：工作学习
+- 英文例句
+- 中文翻译
+
+### 场景3：特殊场合
+- 英文例句
+- 中文翻译`;
                 } else if (ctx.refineType === 'mnemonic') {
-                    prompt = `用户觉得刚才的助记口诀不够好。请为单词 "${targetWord}" 重新想一个**更有创意、更魔性**的助记口诀（谐音梗或联想记忆）。并简单解释记忆逻辑。`;
+                    prompt = `用户觉得刚才的助记口诀不够好。请为单词 "${targetWord}" 重新想一个**更有创意、更魔性**的助记口诀。
+
+**格式要求：**
+## 🧠 新口诀：${targetWord}
+
+### 口诀
+> "创意魔性口诀"
+
+### 记忆逻辑
+为什么这样记（简短解释）`;
                 }
 
                 console.log(`[TeacherMode] Starting ${silent ? 'silent ' : ''}fetch request for: ${targetWord}`);
@@ -782,9 +853,14 @@ export function FloatingAIChat({
             {/* 悬浮按钮 - 使用自定义 InteractiveMascot */}
             {/* 悬浮按钮 - 使用自定义 InteractiveMascot */}
             <motion.div
+                ref={mascotRef}
                 drag
                 dragMomentum={false}
+                dragElastic={0}
                 dragTransition={{ power: 0, timeConstant: 0 }} // [Performance] 零动量，松手即停
+                initial={mascotPosition} // [NEW] Restore saved position
+                animate={mascotPosition} // [NEW] Apply saved position
+                transition={{ type: "tween", duration: 0 }}
                 whileTap={{ scale: isDragging ? 1 : 0.95 }}
                 className={cn(
                     "fixed bottom-10 right-10 z-50 w-20 h-20 rounded-full",
@@ -795,8 +871,17 @@ export function FloatingAIChat({
                     isDraggingRef.current = true; // [Logic] 锁定点击
                     setIsDragging(true); // [Performance] 开启降级渲染
                 }}
-                onDragEnd={() => {
+                onDragEnd={(_, info) => {
                     setIsDragging(false); // [Performance] 恢复渲染
+
+                    // [NEW] Save position to localStorage
+                    const newPos = {
+                        x: mascotPosition.x + info.offset.x,
+                        y: mascotPosition.y + info.offset.y
+                    };
+                    setMascotPosition(newPos);
+                    localStorage.setItem('mascot_position', JSON.stringify(newPos));
+
                     // [Logic] 延迟解锁点击，防止松手瞬间触发 onClick
                     setTimeout(() => {
                         isDraggingRef.current = false;

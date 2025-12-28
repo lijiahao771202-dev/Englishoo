@@ -286,6 +286,11 @@ export const SphereVisuals = React.memo(({ reaction }: SphereVisualsProps) => {
     const faceRotateX = -internalState.lookDir.y; // 上下看 = 绕X轴反向旋转
     const faceTranslateX = internalState.lookDir.x * 0.5; // 稍微平移增加立体感
 
+    // Generate unique ID for SVG scopes
+    const uniqueId = React.useId().replace(/:/g, ''); // React.useId generates :r0:, remove colons for safe ID
+    const leftEyeClipId = `leftEyeClip-${uniqueId}`;
+    const rightEyeClipId = `rightEyeClip-${uniqueId}`;
+
     return (
         <div className="relative w-full h-full select-none" style={{ perspective: '800px' }}>
             {/* 容器阴影 */}
@@ -317,8 +322,8 @@ export const SphereVisuals = React.memo(({ reaction }: SphereVisualsProps) => {
                 >
                     <svg viewBox="0 0 120 120" className="w-full h-full">
                         <defs>
-                            <clipPath id="leftEyeClip"><circle cx={leftEyeCx} cy={eyeCy} r={eyeBaseRadius} /></clipPath>
-                            <clipPath id="rightEyeClip"><circle cx={rightEyeCx} cy={eyeCy} r={eyeBaseRadius} /></clipPath>
+                            <clipPath id={leftEyeClipId}><circle cx={leftEyeCx} cy={eyeCy} r={eyeBaseRadius} /></clipPath>
+                            <clipPath id={rightEyeClipId}><circle cx={rightEyeCx} cy={eyeCy} r={eyeBaseRadius} /></clipPath>
                             <filter id="blushBlur"><feGaussianBlur in="SourceGraphic" stdDeviation="2" /></filter>
                         </defs>
 
@@ -380,14 +385,14 @@ export const SphereVisuals = React.memo(({ reaction }: SphereVisualsProps) => {
                                     </>
                                 ) : (
                                     <>
-                                        <g clipPath="url(#leftEyeClip)">
+                                        <g clipPath={`url(#${leftEyeClipId})`}>
                                             <motion.circle
                                                 cx={leftEyeCx} cy={eyeCy} r="7" fill="#1f2937"
                                                 animate={{ x: faceData.pupilOffset?.x, y: faceData.pupilOffset?.y }}
                                                 transition={{ type: "spring", stiffness: 150, damping: 15 }}
                                             />
                                         </g>
-                                        <g clipPath="url(#rightEyeClip)">
+                                        <g clipPath={`url(#${rightEyeClipId})`}>
                                             <motion.circle
                                                 cx={rightEyeCx} cy={eyeCy} r="7" fill="#1f2937"
                                                 animate={{ x: faceData.pupilOffset?.x, y: faceData.pupilOffset?.y }}

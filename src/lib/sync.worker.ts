@@ -25,6 +25,7 @@ type SyncMessage = {
     userId: string;
     supabaseUrl: string;
     supabaseKey: string;
+    syncMode?: 'push-only' | 'full-sync';
 };
 
 type WorkerResponse = {
