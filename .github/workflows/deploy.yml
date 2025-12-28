@@ -37,4 +37,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=english11
+          # wrangler.toml 配置了 pages_build_output_dir = "dist"
+          # wrangler 会自动检测根目录的 functions 目录
+          command: pages deploy

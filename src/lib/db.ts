@@ -430,11 +430,15 @@ export async function getDueCards(deckId?: string) {
         allCards = await db.getAll('cards');
     }
 
-    return allCards.filter(card =>
-        card.due.getTime() <= now.getTime() &&
-        card.state !== State.New &&
-        !card.isFamiliar
-    );
+    return allCards.filter(card => {
+        // [FIX] IndexedDB 存储的日期可能是 ISO 字符串，需要反序列化
+        const dueTime = card.due instanceof Date
+            ? card.due.getTime()
+            : new Date(card.due).getTime();
+        return dueTime <= now.getTime() &&
+            card.state !== State.New &&
+            !card.isFamiliar;
+    });
 }
 
 /**

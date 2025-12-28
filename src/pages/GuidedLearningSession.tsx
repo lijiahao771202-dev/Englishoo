@@ -7,7 +7,7 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { generateCurriculum, getLevelDetail, type CurriculumLevel } from '@/lib/curriculum';
 import { getAllDecks, saveCard, getAllCards, getSemanticConnections, getCardsByIds, getGroupGraphCache, saveGroupGraphCache, getAIGraphCache, saveAIGraphCache, forceSyncNow } from '@/lib/data-source';
 import { cn } from '@/lib/utils';
-import { speak } from '@/lib/tts';
+import { speak, stopAll } from '@/lib/tts';
 import { playClickSound, playSuccessSound, playFailSound, playKnowSound, playSessionCompleteSound, playSpellingSuccessSound, playPassSound } from '@/lib/sounds';
 import { Flashcard } from '@/components/Flashcard';
 import type { WordCard } from '@/types';
@@ -1700,7 +1700,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }, [currentItem, choiceResult, choiceOptions]);
 
     // Test Logic (Spelling)
-    // [FIX] 使用 ref 追踪已播放的卡片，防止重复触发
+    // [FIX] 使用 ref 追踪已播放的卡片和阶段，防止重复触发
     const lastSpokenTestCardIdRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -1708,13 +1708,19 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             setInputValue('');
             setTestResult(null);
 
+            // [FIX] 先停止之前的 TTS，避免与 choice 阶段的 TTS 重叠
+            stopAll();
+
             // [FIX] 只有当这是一张新的测试卡片时才播放
-            if (lastSpokenTestCardIdRef.current !== currentItem.card.id) {
-                lastSpokenTestCardIdRef.current = currentItem.card.id;
+            // 使用组合 key (卡片ID + 类型) 确保 choice → test 转换时检测到变化
+            const speakKey = `${currentItem.card.id}-test`;
+            if (lastSpokenTestCardIdRef.current !== speakKey) {
+                lastSpokenTestCardIdRef.current = speakKey;
+                // [FIX] 增加延迟到 400ms，确保 choice 阶段的 TTS 已经被 stopAll 完全停止
                 setTimeout(() => {
                     inputRef.current?.focus();
                     speak(currentItem.card.word);
-                }, 100);
+                }, 400);
             } else {
                 // 同一张卡的重复触发，只聚焦不播放
                 setTimeout(() => inputRef.current?.focus(), 100);
@@ -1726,6 +1732,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             lastSpokenTestCardIdRef.current = null;
         }
     }, [currentItem]);
+
 
     // [Feature I] Hesitation Detection
     useEffect(() => {
@@ -3113,21 +3120,60 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             {phase === 'word-learning' && (
                                 <motion.div
                                     key={currentItem?.card.id || 'empty-word'}
-                                    initial={{ x: 60, opacity: 0 }}
-                                    animate={{ x: 0, opacity: 1 }}
-                                    exit={{ x: -60, opacity: 0 }}
+                                    // iOS 风格非线性动画：入场 (从右飞入 + 放大 + 去糊)
+                                    initial={{
+                                        x: 80,
+                                        opacity: 0,
+                                        scale: 0.92,
+                                        filter: "blur(8px)",
+                                        rotateY: 8
+                                    }}
+                                    animate={{
+                                        x: 0,
+                                        opacity: 1,
+                                        scale: 1,
+                                        filter: "blur(0px)",
+                                        rotateY: 0
+                                    }}
+                                    // iOS 风格非线性动画：出场 (向左飘走 + 缩小 + 微糊)
+                                    exit={{
+                                        x: -80,
+                                        opacity: 0,
+                                        scale: 0.95,
+                                        filter: "blur(4px)",
+                                        rotateY: -4
+                                    }}
                                     transition={{
+                                        // 主体使用柔和 spring (iOS 标准)
                                         type: "spring",
-                                        stiffness: 200,
-                                        damping: 25,
-                                        mass: 0.5,
-                                        opacity: { duration: 0.2 }
+                                        stiffness: 120,  // 更柔和的弹簧
+                                        damping: 18,     // 适度阻尼，有惯性但不弹跳
+                                        mass: 0.8,       // 略重，更有质感
+                                        // 分层编排：blur 使用 iOS Slide 曲线
+                                        filter: {
+                                            type: "tween",
+                                            duration: 0.45,
+                                            ease: [0.32, 0.72, 0, 1]  // iOS Slide 曲线
+                                        },
+                                        // opacity 使用 Spring-like 曲线
+                                        opacity: {
+                                            type: "tween",
+                                            duration: 0.35,
+                                            ease: [0.25, 1, 0.5, 1]  // Spring-like 曲线
+                                        },
+                                        // scale 单独配置更弹性的 spring
+                                        scale: {
+                                            type: "spring",
+                                            stiffness: 150,
+                                            damping: 20
+                                        }
                                     }}
                                     className="w-full"
                                 >
                                     {renderSessionItem()}
                                 </motion.div>
                             )}
+
 
                             {phase === 'connection-learning' && (
                                 <motion.div
