@@ -114,6 +114,7 @@ export function LearningSession({
   // Effect: New Card - Mascot Greeting
   useEffect(() => {
     if (mode === 'learn' && currentCard) {
+      speak(currentCard.word);
       cardLoadedTimeRef.current = Date.now(); // Reset timer
       // Delay slightly to look natural
       const timer = setTimeout(() => {
@@ -439,6 +440,7 @@ export function LearningSession({
           <Flashcard
             key={`learn-${currentCard.id}`} // Force re-mount when switching modes/cards
             card={currentCard}
+            // autoPlay removed
             alwaysShowContent={true}
             onFlip={() => { }}
             onEnrich={async () => {

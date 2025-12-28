@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Sparkles, BookOpen, BrainCircuit, Eye, Edit3, Save, RefreshCw, Volume2, Heart, CheckCircle, Keyboard, Link2, Sprout, RotateCcw, Network, FileText } from 'lucide-react';
 import { FormattedText } from './FormattedText';
 import { Rating } from 'ts-fsrs';
-import { speak, stopAll } from '@/lib/tts';
+import { speak } from '@/lib/tts';
 import { playClickSound, playSuccessSound } from '@/lib/sounds';
 import { NotesModal } from './NotesModal';
 
@@ -70,6 +70,7 @@ interface FlashcardProps {
    * @description 动作回调：标记为熟词 (跳过测试)
    */
   onMarkFamiliar?: () => void;
+
 }
 
 /**
@@ -425,26 +426,6 @@ export function Flashcard({
   const speakWord = React.useCallback(() => {
     speak(card.word);
   }, [card.word]);
-
-  // Ref to track last spoken word to prevent duplicates
-  const lastSpokenWordRef = useRef<string | null>(null);
-
-  // Auto-play when card word changes (debounced, deduplicated)
-  useEffect(() => {
-    // [FIX] 防止重复朗读：如果此单词刚刚被朗读过，则跳过
-    if (lastSpokenWordRef.current === card.word) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      lastSpokenWordRef.current = card.word;
-      speakWord();
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      stopAll(); // 切换卡片时停止之前的 TTS
-    };
-  }, [card.word]); // 只依赖 card.word，不依赖 speakWord 以避免不必要的重复
 
   const handleSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();

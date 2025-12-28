@@ -106,6 +106,13 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     const [showGroupCompletion, setShowGroupCompletion] = useState(false); // [NEW] Pause for group report
     const [isQueueInitialized, setIsQueueInitialized] = useState(false); // [FIX] Prevent race condition on load
 
+    // Global Cleanup on Unmount
+    useEffect(() => {
+        return () => {
+            stopAll();
+        };
+    }, []);
+
     // Group State
     const [activeGroupIndex, setActiveGroupIndex] = useState<number>(-1);
 
@@ -1607,23 +1614,29 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }, [graphData]);
 
     // [NEW] Mascot Greeting for New Words (Feature G)
+    // [NEW] Mascot Greeting for New Words (Feature G)
     useEffect(() => {
         if (currentItem?.type === 'learn') {
             cardLoadedTimeRef.current = Date.now();
 
-            // [Feature I] 老师模式：始终讲解 (无论是新词还是复习词)
-            if (isTeacherMode) {
-                mascotEventBus.requestExplanation(currentItem.card.word, {
-                    meaning: currentItem.card.meaning
-                });
-            }
-            // 如果不是老师模式，仅在新词时打招呼
-            else if (currentItem.card.state === State.New) {
-                mascotEventBus.say(
-                    getMascotDialogue('greeting'),
-                    'happy'
-                );
-            }
+            // Sequence: Speak Word -> Then Mascot
+            speak(currentItem.card.word, {
+                onEnd: () => {
+                    // [Feature I] 老师模式：始终讲解
+                    if (isTeacherMode) {
+                        mascotEventBus.requestExplanation(currentItem.card.word, {
+                            meaning: currentItem.card.meaning
+                        });
+                    }
+                    // 如果不是老师模式，仅在新词时打招呼
+                    else if (currentItem.card.state === State.New) {
+                        mascotEventBus.say(
+                            getMascotDialogue('greeting'),
+                            'happy'
+                        );
+                    }
+                }
+            });
         }
     }, [currentItem, isTeacherMode]);
 
@@ -1632,6 +1645,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             setChoiceOptions(generateOptions(currentItem.card));
             setChoiceResult(null);
             setSelectedChoiceId(null);
+            stopAll(); // [FIX] 确保停止之前的音频
             speak(currentItem.card.word);
         }
     }, [currentItem, generateOptions]);
@@ -1700,34 +1714,46 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
     }, [currentItem, choiceResult, choiceOptions]);
 
     // Test Logic (Spelling)
-    // [FIX] 使用 ref 追踪已播放的卡片和阶段，防止重复触发
     const lastSpokenTestCardIdRef = useRef<string | null>(null);
 
     useEffect(() => {
+        // [FIX] 只有当进入 test 阶段且确实是该卡片时才执行逻辑
         if (currentItem?.type === 'test' && inputRef.current) {
             setInputValue('');
             setTestResult(null);
 
-            // [FIX] 先停止之前的 TTS，避免与 choice 阶段的 TTS 重叠
             stopAll();
 
-            // [FIX] 只有当这是一张新的测试卡片时才播放
-            // 使用组合 key (卡片ID + 类型) 确保 choice → test 转换时检测到变化
-            const speakKey = `${currentItem.card.id}-test`;
+            // 记录当前卡片ID，用于 setTimeout 中的校验
+            const currentCardId = currentItem.card.id;
+            const speakKey = `${currentCardId}-test`;
+
+            // 如果已经对这张卡片播放过 test 音频，就不再自动播放
             if (lastSpokenTestCardIdRef.current !== speakKey) {
                 lastSpokenTestCardIdRef.current = speakKey;
-                // [FIX] 增加延迟到 400ms，确保 choice 阶段的 TTS 已经被 stopAll 完全停止
+
+                // [FIX] 增加延迟到 400ms，并且在回调中再次确认 currentItem 没变
                 setTimeout(() => {
-                    inputRef.current?.focus();
-                    speak(currentItem.card.word);
+                    // 再次检查两个条件：
+                    // 1. 组件还在挂载状态 (inputRef.current 存在)
+                    // 2. 当前显示的卡片 ID 仍然是触发时的 ID (防止用户快速跳过)
+                    if (inputRef.current && currentItem?.card.id === currentCardId) {
+                        inputRef.current.focus();
+                        speak(currentItem.card.word);
+                    } else {
+                        console.log('[Skip TTS] Card changed during timeout:', {
+                            original: currentCardId,
+                            current: currentItem?.card.id
+                        });
+                    }
                 }, 400);
             } else {
-                // 同一张卡的重复触发，只聚焦不播放
                 setTimeout(() => inputRef.current?.focus(), 100);
             }
         }
 
-        // 当离开 test 阶段时重置 ref
+        // 当离开 test 阶段时重置 ref (可选，视需求而定。如果希望回到同个卡片不重读，就不重置)
+        // 这里保留之前的逻辑：离开 TEST 阶段就重置，以便下次进入同一张卡(虽然很少见)能重读
         if (currentItem?.type !== 'test') {
             lastSpokenTestCardIdRef.current = null;
         }

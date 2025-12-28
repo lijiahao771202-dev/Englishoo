@@ -4,7 +4,8 @@
  * 实现了分页加载、多维度筛选（已学、未学、熟悉、重点）以及液态玻璃 UI 风格。
  */
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { ArrowLeft, Plus, Search, Trash2, X, Eye, Heart, Activity, Network, Sparkles, RefreshCw, BrainCircuit, Loader2, BookOpen } from 'lucide-react';
+import { ArrowLeft, Plus, X, Eye, BookOpen, Search, Sparkles, RefreshCw, Activity, Loader2, BrainCircuit, Network, Heart, Trash2 } from 'lucide-react';
+import { speak } from '@/lib/tts';
 import { Flashcard } from '@/components/Flashcard';
 import { getDeckById, getAllCards, getDueCards, getNewCards, deleteCard, getAllLogs, deleteDeck } from '@/lib/data-source';
 import { EmbeddingService } from '@/lib/embedding';
@@ -690,6 +691,12 @@ export function DeckDetail({
 // Sub-component to avoid IIFE and hook issues
 function PreviewModal({ cardId, cards, onClose, isPreviewFlipped, setIsPreviewFlipped, onUpdateCard, setCards, handlers, isEnriching }: any) {
   const card = cards.find((c: any) => c.id === cardId);
+
+  // Auto-play on mount/update
+  useEffect(() => {
+    if (card) speak(card.word);
+  }, [card?.word]);
+
   if (!card) return null;
 
   return (
@@ -713,6 +720,7 @@ function PreviewModal({ cardId, cards, onClose, isPreviewFlipped, setIsPreviewFl
 
         <Flashcard
           card={card}
+          // autoPlay removed - controlled by parent useEffect
           flipped={isPreviewFlipped}
           onFlip={setIsPreviewFlipped}
           onUpdateCard={async (updatedCard) => {

@@ -16,7 +16,7 @@ import type { WordCard, Deck } from './types';
 import { type RecordLog } from 'ts-fsrs';
 import { Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { initTTS } from '@/lib/tts';
+import { initTTS, speak } from '@/lib/tts';
 import { importTem8Deck } from '@/lib/import-tem8';
 import { seedFromLocalJSON } from '@/lib/seed';
 import { EmbeddingService, type EmbeddingConfig } from '@/lib/embedding';
@@ -120,6 +120,22 @@ function AppContent() {
 
     // FSRS Previews
     const [reviewPreviews, setReviewPreviews] = useState<RecordLog | undefined>(undefined);
+
+    // Auto-play TTS in Review Mode
+    useEffect(() => {
+        if (view === 'review' && sessionQueue.length > 0 && sessionQueue[currentCardIndex]) {
+            speak(sessionQueue[currentCardIndex].word);
+        }
+    }, [view, currentCardIndex, sessionQueue]);
+
+    // Review Previews Calculation
+    useEffect(() => {
+        if (view === 'review' && sessionQueue.length > 0 && sessionQueue[currentCardIndex]) {
+            const previews = getReviewPreviews(sessionQueue[currentCardIndex]);
+            // @ts-ignore
+            setReviewPreviews(previews);
+        }
+    }, [view, sessionQueue, currentCardIndex]);
 
     // Liquid Glass Settings (Lazy Initialization to prevent race condition)
     const [glassSettings, setGlassSettings] = useState<LiquidGlassSettings>(() => {
@@ -1220,6 +1236,7 @@ function AppContent() {
                                 <Flashcard
                                     key={sessionQueue[currentCardIndex].id}
                                     card={sessionQueue[currentCardIndex]}
+                                    // autoPlay removed - controlled by parent
                                     flipped={isReviewCardFlipped}
                                     onFlip={setIsReviewCardFlipped}
                                     onEnrich={() => handleEnrich(sessionQueue[currentCardIndex])}

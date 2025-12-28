@@ -22,8 +22,10 @@ export const initTTS = () => {
 // Keep track of the current audio to allow cancellation
 let currentAudio: HTMLAudioElement | null = null;
 
-// Global cancellation flag to prevent race conditions
-let isCancelled = false;
+// Global playback ID to prevent race conditions
+// Every speak() call increments this. Async callbacks check if their ID matches current.
+let currentPlaybackId = 0;
+
 let startTimeout: any = null; // Track pending start timeout
 let lastSpokenText: string = ''; // Track last spoken text
 let debounceTimeout: any = null; // Debounce rapid calls
@@ -33,11 +35,12 @@ interface SpeakOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
-  forceNative?: boolean; // Force using Web Speech API (useful for long text where we want consistent voice)
+  forceNative?: boolean; // Force using Web Speech API
 }
 
 export const stopAll = () => {
-  isCancelled = true;
+  // Increment ID to invalidate any pending async operations (e.g. audio loading)
+  currentPlaybackId++;
 
   if (startTimeout) {
     clearTimeout(startTimeout);
@@ -56,8 +59,10 @@ export const stopAll = () => {
     window.speechSynthesis.cancel();
   }
 
-  // 3. Clear any ongoing timeouts or pending promises (conceptually)
-  // (handled by checking isCancelled in async callbacks)
+  if (debounceTimeout) {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = null;
+  }
 };
 
 // Alias for backward compatibility
@@ -66,44 +71,42 @@ export const cancelSpeech = stopAll;
 export const speak = (text: string, options: SpeakOptions = {}) => {
   if (!text) return;
 
-  // [FIX] 时间基防抖：仅在 300ms 内的连续相同词调用才忽略
+  // [Debounce Strategy]
+  // Ignore duplicate calls for the same text within a short window
   if (text === lastSpokenText && debounceTimeout) {
-    // 如果 debounce 计时器还在运行，说明是快速重复调用，忽略
     console.log('[TTS] Debounce: ignoring duplicate call for', text);
     return;
   }
 
-  // 清除之前的 debounce 计时器
-  if (debounceTimeout) {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = null;
-  }
+  // Stop everything before starting new
+  stopAll();
 
+  // Capture the ID for this specific playback attempt
+  const myPlaybackId = currentPlaybackId;
+
+  // Reset debounce timer
   lastSpokenText = text;
-
-  // 设置新的 debounce 窗口 (300ms 内的重复调用会被忽略)
   debounceTimeout = setTimeout(() => {
     debounceTimeout = null;
-    lastSpokenText = ''; // 窗口结束后允许再次播放同一个词
+    lastSpokenText = '';
   }, 300);
-
-  // Reset cancellation flag for new session
-  isCancelled = false;
 
   const { rate = 1.0, onStart, onEnd, onError, forceNative = false } = options;
 
-  // STRICT STOP before starting anything new
-  stopAll();
-  isCancelled = false; // Reset again because stopAll sets it to true
+  // Helper to check validity
+  const isValid = () => currentPlaybackId === myPlaybackId;
 
-  // Helper to wrap callbacks with cancellation check
   const safeStart = () => {
-    if (!isCancelled && onStart) onStart();
-    if (!isCancelled) window.dispatchEvent(new CustomEvent('tts-state-change', { detail: { isPlaying: true } }));
+    if (isValid()) {
+      if (onStart) onStart();
+      window.dispatchEvent(new CustomEvent('tts-state-change', { detail: { isPlaying: true } }));
+    }
   };
+
   const safeEnd = () => {
-    if (!isCancelled && onEnd) onEnd();
-    // We don't reset isCancelled here to allow debounce/overlap protection
+    // Note: We dispatch global state change even if logically invalid, to ensure UI resets
+    // But we only call user callback if valid
+    if (isValid() && onEnd) onEnd();
     window.dispatchEvent(new CustomEvent('tts-state-change', { detail: { isPlaying: false } }));
   };
 
@@ -115,115 +118,116 @@ export const speak = (text: string, options: SpeakOptions = {}) => {
       audio.playbackRate = rate;
 
       audio.onplay = () => {
-        console.log('TTS: Playing online audio');
+        if (!isValid()) {
+          audio.pause();
+          return;
+        }
+        console.log(`[TTS #${myPlaybackId}] Playing online audio: ${text}`);
         safeStart();
       };
 
       audio.onended = () => {
-        safeEnd();
         if (currentAudio === audio) currentAudio = null;
+        safeEnd();
       };
 
       audio.onerror = (e) => {
-        if (isCancelled) return;
-        console.warn('TTS: Online audio failed, falling back to Web Speech API', e);
-        speakNative(text, rate, safeStart, safeEnd, onError);
+        if (!isValid()) return;
+        console.warn('TTS: Online audio failed, falling back to Native', e);
+        speakNative(text, rate, safeStart, safeEnd, onError, myPlaybackId);
       };
 
       currentAudio = audio;
-      const playPromise = audio.play();
 
+      // Attempt play
+      const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          if (isCancelled) return; // Ignore errors if we cancelled
+          if (!isValid()) return; // Ignored if we cancelled/switched
+
+          // Auto-play policy blocking or network error
           console.warn('TTS: Auto-play prevented or network error', error);
-          speakNative(text, rate, safeStart, safeEnd, onError);
+          speakNative(text, rate, safeStart, safeEnd, onError, myPlaybackId);
         });
       }
       return;
     } catch (e) {
-      if (isCancelled) return;
+      if (!isValid()) return;
       console.error('TTS: Error creating audio', e);
-      speakNative(text, rate, safeStart, safeEnd, onError);
+      speakNative(text, rate, safeStart, safeEnd, onError, myPlaybackId);
       return;
     }
   }
 
-  // Strategy 2: Native Web Speech API (For long text)
-  speakNative(text, rate, safeStart, safeEnd, onError);
+  // Strategy 2: Native Web Speech API
+  speakNative(text, rate, safeStart, safeEnd, onError, myPlaybackId);
 };
 
 const speakNative = (
   text: string,
   rate: number,
-  onStart?: () => void,
-  onEnd?: () => void,
-  onError?: (err: any) => void
+  onStart: (() => void) | undefined,
+  onEnd: (() => void) | undefined,
+  onError: ((err: any) => void) | undefined,
+  playbackId: number
 ) => {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
-    console.warn('TTS: Speech synthesis not supported');
     if (onError) onError('Speech synthesis not supported');
     return;
   }
 
-  // Double check cancellation
-  if (isCancelled) return;
+  // Check validity immediate
+  if (currentPlaybackId !== playbackId) return;
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = rate;
   utterance.lang = 'en-US';
 
-  // Try to find a good voice
   const voices = window.speechSynthesis.getVoices();
   const preferredVoice =
-    voices.find(v => v.name.includes('Microsoft') && v.lang.startsWith('en')) || // Edge/Windows
-    voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||    // Chrome
-    voices.find(v => v.name === 'Samantha') ||                                   // macOS
+    voices.find(v => v.name.includes('Microsoft') && v.lang.startsWith('en')) ||
+    voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||
+    voices.find(v => v.name === 'Samantha') ||
     voices.find(v => v.lang === 'en-US');
 
   if (preferredVoice) {
     utterance.voice = preferredVoice;
   }
 
-  // Fix for Chrome/Safari garbage collection bug
+  // Fix for garbage collection
   (window as any).currentUtterance = utterance;
 
   utterance.onstart = () => {
-    if (!isCancelled && onStart) onStart();
+    if (currentPlaybackId === playbackId && onStart) onStart();
   };
 
   utterance.onend = () => {
     if ((window as any).currentUtterance === utterance) {
       (window as any).currentUtterance = null;
     }
-    if (!isCancelled && onEnd) onEnd();
+    if (currentPlaybackId === playbackId && onEnd) onEnd();
   };
 
   utterance.onerror = (e) => {
     if ((window as any).currentUtterance === utterance) {
       (window as any).currentUtterance = null;
     }
+    if (currentPlaybackId !== playbackId) return;
 
-    if (isCancelled) return; // Ignore if cancelled
+    // Ignore interruption errors
+    if (e.error === 'interrupted' || e.error === 'canceled') return;
 
-    // Enhanced check for interruption
-    if (e.error === 'interrupted' || e.error === 'canceled') {
-      return;
-    }
-
-    console.error('TTS: Native speech error', e.error, e);
+    console.error('TTS: Native error', e);
     if (onError) onError(e);
-    // Even on error, we should probably call onEnd to reset UI state
     if (onEnd) onEnd();
   };
 
-  // Small delay to ensure cancellation took effect and browser is ready
-  // Increased to 100ms to fix race condition where cancel() isn't finished
+  // Small delay to ensure cancellation took effect
   startTimeout = setTimeout(() => {
     startTimeout = null;
-    if (!isCancelled) {
-      console.log('TTS: Executing speak()', { text: text.substring(0, 20) + '...' });
+    if (currentPlaybackId === playbackId) {
+      console.log(`[TTS #${playbackId}] Executing Native speak: ${text}`);
       window.speechSynthesis.speak(utterance);
     }
-  }, 100);
+  }, 50);
 };
