@@ -476,9 +476,59 @@ export function SettingsModal({
                       }}
                       className="p-4 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-200 flex flex-col items-center gap-2 transition-all active:scale-95"
                     >
-                      <DownloadCloud className="w-5 h-5 mb-1" />
-                      <span className="font-bold text-sm">从云端恢复</span>
-                      <span className="text-[10px] opacity-60">拉取并合并云端数据</span>
+                      <div className="flex flex-col items-center">
+                        <DownloadCloud className="w-5 h-5 mb-1" />
+                        <span className="font-bold text-sm">从云端恢复</span>
+                        <span className="text-[10px] opacity-60">覆盖本地数据</span>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="mt-8 pt-4 border-t border-white/10">
+                    <h3 className="text-red-400 font-bold mb-4 flex items-center gap-2">
+                      <Trash2 className="w-4 h-4" /> 危险区域
+                    </h3>
+                    <button
+                      onClick={async () => {
+                        const confirm1 = confirm('⚠️ 严重警告：此操作不可逆！\n\n您现在的数据库似乎已被污染（出现重复卡组）。\n此操作将【清空】您的：\n1. 所有本地学习进度\n2. 所有云端同步数据\n3. 所有词书和卡片\n\n确定要彻底重置吗？');
+                        if (!confirm1) return;
+
+                        const confirm2 = prompt('请在下方输入 "DELETE" 以确认删除所有数据：');
+                        if (confirm2 !== 'DELETE') {
+                          alert('输入错误，操作已取消。');
+                          return;
+                        }
+
+                        try {
+                          alert('正在清理...请勿关闭页面。');
+
+                          // 1. Delete Cloud Data
+                          const { data: { session } } = await supabase.auth.getSession();
+                          if (session?.user) {
+                            console.log('Deleting cloud data...');
+                            await supabase.from('review_logs').delete().eq('user_id', session.user.id);
+                            await supabase.from('cards').delete().eq('user_id', session.user.id);
+                            await supabase.from('decks').delete().eq('user_id', session.user.id);
+                          }
+
+                          // 2. Delete Local Data
+                          console.log('Clearing local DB...');
+                          await db.resetDatabase();
+
+                          // 3. Clear LocalStorage
+                          localStorage.clear();
+
+                          alert('✅ 数据已全部重置。页面将刷新。');
+                          window.location.reload();
+                        } catch (error: any) {
+                          console.error('Reset failed:', error);
+                          alert('❌ 重置失败: ' + error.message);
+                        }
+                      }}
+                      className="w-full p-4 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                      <span className="font-bold">一键通过重置修复数据库污染</span>
                     </button>
                   </div>
                 </div>
