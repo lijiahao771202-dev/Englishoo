@@ -39,4 +39,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # wrangler.toml 配置了 pages_build_output_dir = "dist"
           # wrangler 会自动检测根目录的 functions 目录
-          command: pages deploy
+          command: pages deploy dist
