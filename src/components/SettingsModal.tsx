@@ -17,6 +17,7 @@ import { resetDatabase } from '@/lib/db';
 import { supabase } from '@/lib/supabase';
 import { importOfficialDeck, OFFICIAL_DECKS, type OfficialDeckType, type OfficialImportProgress } from '@/lib/import-official';
 import { EmbeddingService } from '@/lib/embedding';
+import { getAllCards } from '@/lib/data-source';
 
 export interface LiquidGlassSettings {
   opacity: number;
@@ -584,12 +585,28 @@ export function SettingsModal({
                                     setImportProgress({ total: p.total, current: p.count, word: p.currentWord });
                                   });
 
-                                  // [FIX] Trigger Clustering
-                                  setImportProgress(prev => ({ ...prev, word: '正在构建语义分组... (需约 5-10 秒)' }));
-                                  const deckId = OFFICIAL_DECKS[type].id;
-                                  await EmbeddingService.getInstance().getDeckClusters(deckId, undefined, true);
+                                  // ━━━ [FIX] 完整导入流程: 导入 → 生成嵌入 → 分组 ━━━
 
-                                  alert(`${OFFICIAL_DECKS[type].name} 导入成功！\n已自动生成语义分组。`);
+                                  // Phase 2: 获取导入的卡片并生成嵌入向量
+                                  setImportProgress({ total: 100, current: 50, word: '正在构建知识图谱...' });
+                                  const deckId = OFFICIAL_DECKS[type].id;
+                                  const cards = await getAllCards(deckId);
+                                  const words = cards.map(c => c.word);
+
+                                  const embeddingService = EmbeddingService.getInstance();
+                                  await embeddingService.batchProcess(words, (current, total, stage) => {
+                                    setImportProgress({
+                                      total,
+                                      current,
+                                      word: `构建图谱: ${stage || ''} (${current}/${total})`
+                                    });
+                                  });
+
+                                  // Phase 3: 生成语义分组
+                                  setImportProgress({ total: 100, current: 90, word: '正在生成语义分组...' });
+                                  await embeddingService.getDeckClusters(deckId, undefined, true);
+
+                                  alert(`${OFFICIAL_DECKS[type].name} 导入成功！\n已自动构建知识图谱并生成语义分组。`);
                                   window.location.reload();
                                 } catch (error: any) {
                                   console.error('Import failed:', error);
@@ -611,12 +628,28 @@ export function SettingsModal({
                                             setImportProgress({ total: p.total, current: p.count, word: p.currentWord });
                                           });
 
-                                          // [FIX] Trigger Clustering
-                                          setImportProgress(prev => ({ ...prev, word: '正在构建语义分组... (需约 5-10 秒)' }));
-                                          const deckId = OFFICIAL_DECKS[type].id;
-                                          await EmbeddingService.getInstance().getDeckClusters(deckId, undefined, true);
+                                          // ━━━ [FIX] 完整导入流程 (手动): 导入 → 生成嵌入 → 分组 ━━━
 
-                                          alert(`${OFFICIAL_DECKS[type].name} (手动) 导入成功！\n已自动生成语义分组。`);
+                                          // Phase 2: 获取导入的卡片并生成嵌入向量
+                                          setImportProgress({ total: 100, current: 50, word: '正在构建知识图谱...' });
+                                          const deckId = OFFICIAL_DECKS[type].id;
+                                          const cards = await getAllCards(deckId);
+                                          const words = cards.map(c => c.word);
+
+                                          const embeddingService = EmbeddingService.getInstance();
+                                          await embeddingService.batchProcess(words, (current, total, stage) => {
+                                            setImportProgress({
+                                              total,
+                                              current,
+                                              word: `构建图谱: ${stage || ''} (${current}/${total})`
+                                            });
+                                          });
+
+                                          // Phase 3: 生成语义分组
+                                          setImportProgress({ total: 100, current: 90, word: '正在生成语义分组...' });
+                                          await embeddingService.getDeckClusters(deckId, undefined, true);
+
+                                          alert(`${OFFICIAL_DECKS[type].name} (手动) 导入成功！\n已自动构建知识图谱并生成语义分组。`);
                                           window.location.reload();
                                         } catch (manualErr: any) {
                                           alert('导入失败: ' + manualErr.message);
