@@ -291,8 +291,10 @@ self.onmessage = async (e: MessageEvent<SyncMessage>) => {
             const currentSyncMode = syncMode || 'push-only'; // Default to push-only per user request
 
             if (currentSyncMode === 'full-sync') {
-                console.log('[Sync Worker] Pulling remote decks...');
-                const remoteDecks = await fetchDecksUpdatedSince(lastSync);
+                // 全量同步：使用 lastSync=0 拉取所有云端数据 (忽略时间过滤)
+                const pullTimestamp = 0; // Pull EVERYTHING from cloud
+                console.log('[Sync Worker] [Full Sync] Pulling ALL remote decks (lastSync=0)...');
+                const remoteDecks = await fetchDecksUpdatedSince(pullTimestamp);
                 if (remoteDecks.length > 0) {
                     console.log(`[Sync Worker] Pulled ${remoteDecks.length} decks.`);
                     for (const d of remoteDecks) {
@@ -300,9 +302,9 @@ self.onmessage = async (e: MessageEvent<SyncMessage>) => {
                     }
                 }
 
-                console.log('[Sync Worker] Pulling remote cards...');
-                self.postMessage({ type: 'STATUS', status: 'syncing', message: 'Checking remote updates...' } as WorkerResponse);
-                const remoteCards = await fetchCardsUpdatedSince(lastSync);
+                console.log('[Sync Worker] [Full Sync] Pulling ALL remote cards (lastSync=0)...');
+                self.postMessage({ type: 'STATUS', status: 'syncing', message: 'Pulling all cloud data...' } as WorkerResponse);
+                const remoteCards = await fetchCardsUpdatedSince(pullTimestamp);
                 if (remoteCards.length > 0) {
                     console.log(`[Sync Worker] Pulled ${remoteCards.length} cards. Saving to IDB...`);
                     self.postMessage({ type: 'STATUS', status: 'syncing', message: `Updating ${remoteCards.length} cards...` } as WorkerResponse);

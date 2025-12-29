@@ -3079,13 +3079,18 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                 {/* Left: Learning Panel (Floating Overlay) */}
                 <div className={cn(
-                    "absolute left-4 top-4 bottom-4 transition-all duration-500 ease-out flex flex-col pointer-events-none",
+                    "absolute transition-all duration-500 ease-out flex flex-col pointer-events-none",
                     isTeacherMode ? "z-50" : "z-10",
                     mode === 'map' ? "-translate-x-[120%] opacity-0" : "translate-x-0 opacity-100",
-                    "w-full max-w-[520px] md:max-w-[580px]"
+                    !isGraphVisible
+                        ? "inset-0 items-center justify-center" // Center Mode
+                        : "left-4 top-4 bottom-4 w-full max-w-[520px] md:max-w-[580px]" // Left Mode
                 )}>
                     <div
-                        className="w-full h-full pointer-events-auto flex flex-col items-center justify-center"
+                        className={cn(
+                            "pointer-events-auto flex flex-col items-center justify-center",
+                            !isGraphVisible ? "w-full max-w-[580px]" : "w-full h-full"
+                        )}
                         onMouseEnter={() => setIsHoveringCard(true)}
                         onMouseLeave={() => setIsHoveringCard(false)}
                     >
@@ -3145,6 +3150,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
                             {phase === 'word-learning' && (
                                 <motion.div
+                                    drag={!isGraphVisible}
+                                    dragMomentum={false}
+                                    whileDrag={{ cursor: 'grabbing', scale: 1.02 }}
                                     key={currentItem?.card.id || 'empty-word'}
                                     // iOS 风格非线性动画：入场 (从右飞入 + 放大 + 去糊)
                                     initial={{
