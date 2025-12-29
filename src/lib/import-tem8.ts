@@ -43,7 +43,9 @@ export async function importTem8Deck(onProgress?: (count: number, total: number)
     const total = lines.length;
     console.log(`Found ${total} lines to import.`);
 
-    const deckId = 'tem-8-deck-' + Date.now(); // Unique ID
+    const deckId = 'official-deck-tem8-pro'; // FIXED ID to prevent duplicates
+
+    // Check if deck exists or just upsert it (createDeck uses put)
     const deck = {
       id: deckId,
       name: '专八的卡包',
@@ -75,12 +77,19 @@ export async function importTem8Deck(onProgress?: (count: number, total: number)
           const example = sentences?.[0]?.sContent;
           const exampleMeaning = sentences?.[0]?.sCn;
 
+          // Generate deterministic ID for the card
+          // card-{deckId}-{word}
+          const cardId = `card-tem8-${word.toLowerCase().trim().replace(/[^a-z0-9]/g, '-')}`;
+
           const card = createNewWordCard(
             word,
             meaning,
             partOfSpeech,
             deckId,
-            example
+            example,
+            undefined, // mnemonic
+            undefined, // associations
+            cardId     // customId
           );
 
           if (exampleMeaning) {

@@ -28,12 +28,13 @@ export function createNewWordCard(
   deckId: string,
   example?: string,
   mnemonic?: string,
-  associations?: string[]
+  associations?: string[],
+  customId?: string
 ): WordCard {
   const emptyCard = createEmptyCard(new Date());
   return {
     ...emptyCard,
-    id: crypto.randomUUID(),
+    id: customId || crypto.randomUUID(),
     deckId,
     word,
     meaning,
