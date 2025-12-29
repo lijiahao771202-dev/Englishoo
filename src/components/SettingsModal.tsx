@@ -547,273 +547,358 @@ export function SettingsModal({
                         <span>正在处理: {importProgress.word}</span>
                         <span>{importProgress.current} / {importProgress.total}</span>
                       </div>
-                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-pink-500 transition-all duration-300"
-                          style={{ width: `${(importProgress.current / (importProgress.total || 100)) * 100}%` }}
+                      {isImporting ? (
+                        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+                          {/* Progress Bar */}
+                          <div className="w-full max-w-xs space-y-2">
+                            <div className="flex justify-between text-xs text-pink-300/80">
+                              <span>导入进度</span>
+                              <span>
+                                {Math.round(((importProgress.current || (importProgress as any).count || 0) / (importProgress.total || 1)) * 100)}%
+                              </span>
+                            </div>
+                            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-pink-500 transition-all duration-300"
+                                style={{ width: `${((importProgress.current || (importProgress as any).count || 0) / (importProgress.total || 1)) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-center gap-2 text-xs text-pink-300 animate-pulse">
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>正在处理数据...</span>
+                            </div>
+                            {(importProgress as any).currentWord && (
+                              <span className="opacity-70">Processing: {(importProgress as any).currentWord}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {/* Official Decks Grid */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
+                              <Book className="w-3 h-3" />
+                              官方标准词库 (去重版)
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              {(['CET4', 'CET6', 'TEM4', 'TEM8', 'IELTS', 'TOEFL'] as OfficialDeckType[]).map((type) => (
+                                <button
+                                  key={type}
+                                  onClick={async () => {
+                                    try {
+                                      setIsImporting(true);
+                                      // Reset progress
+                                      setImportProgress({ total: 1, current: 0 }); // Compatible init state
+
+                                      await importOfficialDeck(type, undefined, (p: OfficialImportProgress) => {
+                                        // Adapter for state compatible with CustomImportProgress
+                                        // We force cast or use 'any' in render to access 'count'
+                                        setImportProgress({ ...p, current: p.count } as any);
+                                      });
+
+                                      alert(`${OFFICIAL_DECKS[type].name} 导入成功！`);
+                                      window.location.reload();
+                                    } catch (error: any) {
+                                      console.error('Import failed:', error);
+
+                                      // Handle missing file with Manual Fallback
+                                      if (error.code === 'FILE_NOT_FOUND' || error.message.includes('FILE_NOT_FOUND')) {
+                                        if (confirm(`未找到内置数据文件 (${OFFICIAL_DECKS[type].file})。\n\n是否选择本地 JSON 文件作为【${OFFICIAL_DECKS[type].name}】导入？\n(导入后将自动应用官方去重策略)`)) {
+                                          const input = document.createElement('input');
+                                          input.type = 'file';
+                                          input.accept = '.json,.txt';
+                                          input.onchange = async (e) => {
+                                            const file = (e.target as HTMLInputElement).files?.[0];
+                                            if (!file) {
+                                              setIsImporting(false);
+                                              return;
+                                            }
+                                            try {
+                                              await importOfficialDeck(type, file, (p) => {
+                                                setImportProgress({ ...p, current: p.count } as any);
+                                              });
+                                              alert(`${OFFICIAL_DECKS[type].name} (手动) 导入成功！`);
+                                              window.location.reload();
+                                            } catch (manualErr: any) {
+                                              alert('导入失败: ' + manualErr.message);
+                                              setIsImporting(false);
+                                            }
+                                          };
+                                          input.click();
+                                          return; // Wait for user interaction
+                                        }
+                                      } else {
+                                        alert('导入出错: ' + error.message);
+                                      }
+                                      setIsImporting(false);
+                                    }
+                                  }}
+                                  className="relative overflow-hidden group py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all flex flex-col items-start gap-1"
+                                >
+                                  {/* Color accent */}
+                                  <div className={`absolute top-0 right-0 w-16 h-16 bg-${OFFICIAL_DECKS[type].theme}-500/10 rounded-full blur-xl group-hover:bg-${OFFICIAL_DECKS[type].theme}-500/20 transition-colors`} />
+
+                                  <span className="text-[10px] uppercase font-bold text-white/30 tracking-widest">{type}</span>
+                                  <span className="text-sm font-medium text-white/90">{OFFICIAL_DECKS[type].name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="h-px bg-white/10 my-2" />
+
+                          {/* Other Imports */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-bold text-white/40 uppercase tracking-wider flex items-center gap-2">
+                              <Upload className="w-3 h-3" />
+                              自定义导入
+                            </h4>
+                            <button
+                              onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = '.json,.txt';
+                                input.onchange = handleImport; // Use existing generic handler
+                                input.click();
+                              }}
+                              className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-dashed border-white/20 text-white/60 hover:text-white font-medium transition-all text-xs flex items-center justify-center gap-2"
+                            >
+                              导入其他格式 (支持 kajweb/luan 格式)
+                            </button>
+                          </div>
+
+                        </div>
+                      )}
+                    </div>
+              </div>
+                )
+          }
+
+                {
+                  activeTab === 'algo' && embeddingConfig && (
+                    <div className="space-y-8">
+                      {/* Threshold */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <label className="text-sm font-medium text-white/80">相似度阈值 (Similarity Threshold)</label>
+                          <span className="text-xs text-pink-300 font-mono">{embeddingConfig.threshold.toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.1"
+                          max="0.95"
+                          step="0.05"
+                          value={embeddingConfig.threshold}
+                          onChange={(e) => handleEmbeddingChange('threshold', parseFloat(e.target.value))}
+                          className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
+                        />
+                        <p className="text-xs text-white/40">
+                          阈值越高，构建的联系越精准，但可能导致孤立单词增多；阈值越低，联系越丰富，但可能出现牵强的关联。建议范围 0.5 - 0.7。
+                        </p>
+                      </div>
+
+                      {/* Min Connections */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <label className="text-sm font-medium text-white/80">最小连接数 (Min Connections)</label>
+                          <span className="text-xs text-pink-300 font-mono">{embeddingConfig.minConnections}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="5"
+                          step="1"
+                          value={embeddingConfig.minConnections}
+                          onChange={(e) => handleEmbeddingChange('minConnections', parseFloat(e.target.value))}
+                          className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
+                        />
+                        <p className="text-xs text-white/40">
+                          强制每个单词至少拥有的连接数量。设为 0 允许孤立单词存在。
+                        </p>
+                      </div>
+
+                      {/* Max Connections */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <label className="text-sm font-medium text-white/80">最大连接数 (Max Connections)</label>
+                          <span className="text-xs text-pink-300 font-mono">{embeddingConfig.maxConnections}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="5"
+                          max="50"
+                          step="1"
+                          value={embeddingConfig.maxConnections}
+                          onChange={(e) => handleEmbeddingChange('maxConnections', parseFloat(e.target.value))}
+                          className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
                         />
                       </div>
-                      <div className="flex items-center justify-center gap-2 text-xs text-pink-300 animate-pulse">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>正在计算语义关联...</span>
+                    </div>
+                  )
+                }
+
+                {
+                  activeTab === 'audio' && (
+                    <div className="space-y-6">
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                          <Volume2 className="w-4 h-4 text-pink-400" /> 音效测试与调试
+                        </h3>
+
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-xs text-white/60">基础交互</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button onClick={playClickSound} className="p-3 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs text-left">👆 点击 (Click)</button>
+                              <button onClick={playKnowSound} className="p-3 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-200 text-xs text-left">✨ 认识 (Know)</button>
+                              <button onClick={playSuccessSound} className="p-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-xs text-left">🎵 拼写成功 (Chime)</button>
+                              <button onClick={playFailSound} className="p-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs text-left">❌ 失败 (Fail)</button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-xs text-white/60">复习评级</label>
+                            <div className="grid grid-cols-4 gap-2">
+                              <button onClick={playReviewAgainSound} className="p-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-200 text-xs">1 重来</button>
+                              <button onClick={playReviewHardSound} className="p-3 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-200 text-xs">2 困难</button>
+                              <button onClick={playReviewGoodSound} className="p-3 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-200 text-xs">3 良好</button>
+                              <button onClick={playReviewEasySound} className="p-3 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-200 text-xs">4 简单</button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-xs text-white/60">场景音效</label>
+                            <button onClick={playSessionCompleteSound} className="w-full p-4 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 border border-white/10 text-white font-medium flex items-center justify-center gap-2 shadow-lg">
+                              🎉 学习完成 (Victory Fanfare)
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <button
-                        onClick={handleImport}
-                        className="w-full py-3 rounded-xl bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/30 text-pink-200 font-bold transition-all active:scale-95"
-                      >
-                        导入100测试词 (快速演示)
-                      </button>
+                  )
+                }
 
-                      <div className="h-px bg-white/10 my-2" />
+                {
+                  activeTab === 'api' && (
+                    <div className="space-y-6">
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                          <Key className="w-4 h-4 text-pink-400" /> DeepSeek API 配置
+                        </h3>
 
-                      <div className="grid grid-cols-1 gap-2">
-                        {[
-                          { name: '四级核心词 (CET-4)', url: '/CET4luan_2.json' },
-                          { name: '六级核心词 (CET-6)', url: '/CET6_2.json' },
-                          { name: '雅思核心词 (IELTS)', url: '/IELTSluan_2.json' },
-                        ].map((dataset) => (
+                        {/* API Key Input */}
+                        <div className="space-y-3 mb-6">
+                          <label className="text-sm font-medium text-white/80">API Key</label>
+                          <input
+                            type="password"
+                            value={apiKey || ''}
+                            onChange={(e) => onApiKeyChange?.(e.target.value)}
+                            placeholder="sk-..."
+                            className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-pink-500/50 transition-all font-mono text-sm"
+                          />
+                          <p className="text-xs text-white/40">
+                            您的 Key 仅存储在本地浏览器中，不会上传到任何服务器。
+                            <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-pink-400 hover:text-pink-300 ml-1">
+                              获取 API Key &rarr;
+                            </a>
+                          </p>
+                        </div>
+
+                        {/* API Stats Monitor */}
+                        <div className="space-y-2 pt-4 border-t border-white/5">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-bold text-white/60 uppercase tracking-wider">API 用量监控 (本地统计)</label>
+                            <button
+                              onClick={() => {
+                                if (confirm('确定要重置由于统计数据吗？')) {
+                                  import('@/lib/deepseek').then(m => m.resetUsageStats());
+                                  // Force re-render would require state, but for now simple alert
+                                  alert('统计已重置');
+                                }
+                              }}
+                              className="text-[10px] text-white/30 hover:text-white/80 transition-colors"
+                            >
+                              重置统计
+                            </button>
+                          </div>
+                          <ApiUsageStatsView />
+                        </div>
+                      </div>
+
+                      {/* 皮肤选择 (原有逻辑) */}
+                      <div className="bg-black/20 rounded-xl p-4 border border-white/5 space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Palette className="w-4 h-4 text-pink-400" />
+                          <h3 className="text-sm font-medium text-white/90">外观主题 (Skin)</h3>
+                        </div>
+                      </div>
+
+                      {/* 省流模式 */}
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-white font-bold flex items-center gap-2">
+                              💰 省流模式
+                            </h3>
+                            <p className="text-xs text-white/50 mt-1">
+                              开启后，知识网络中不再调用 DeepSeek 生成词汇间联系说明，能节省大量 Token。
+                            </p>
+                          </div>
                           <button
-                            key={dataset.url}
-                            onClick={() => handleCustomImport(dataset.name, dataset.url)}
-                            className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white font-medium transition-all flex items-center justify-between px-4 group"
+                            title="切换省流模式"
+                            onClick={() => {
+                              const newValue = !tokenSaverMode;
+                              setTokenSaverMode(newValue);
+                              localStorage.setItem('token_saver_mode', newValue.toString());
+                            }}
+                            className={`relative w-12 h-6 rounded-full transition-colors ${tokenSaverMode
+                              ? 'bg-emerald-500'
+                              : 'bg-white/20'
+                              }`}
                           >
-                            <span>{dataset.name}</span>
-                            <span className="text-xs text-white/30 group-hover:text-white/50">点击导入</span>
+                            <div
+                              className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${tokenSaverMode
+                                ? 'translate-x-7'
+                                : 'translate-x-1'
+                                }`}
+                            />
                           </button>
-                        ))}
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            )
-          }
+                  )
+                }
 
-          {
-            activeTab === 'algo' && embeddingConfig && (
-              <div className="space-y-8">
-                {/* Threshold */}
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <label className="text-sm font-medium text-white/80">相似度阈值 (Similarity Threshold)</label>
-                    <span className="text-xs text-pink-300 font-mono">{embeddingConfig.threshold.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="0.95"
-                    step="0.05"
-                    value={embeddingConfig.threshold}
-                    onChange={(e) => handleEmbeddingChange('threshold', parseFloat(e.target.value))}
-                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
-                  />
-                  <p className="text-xs text-white/40">
-                    阈值越高，构建的联系越精准，但可能导致孤立单词增多；阈值越低，联系越丰富，但可能出现牵强的关联。建议范围 0.5 - 0.7。
-                  </p>
-                </div>
-
-                {/* Min Connections */}
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <label className="text-sm font-medium text-white/80">最小连接数 (Min Connections)</label>
-                    <span className="text-xs text-pink-300 font-mono">{embeddingConfig.minConnections}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="5"
-                    step="1"
-                    value={embeddingConfig.minConnections}
-                    onChange={(e) => handleEmbeddingChange('minConnections', parseFloat(e.target.value))}
-                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
-                  />
-                  <p className="text-xs text-white/40">
-                    强制每个单词至少拥有的连接数量。设为 0 允许孤立单词存在。
-                  </p>
-                </div>
-
-                {/* Max Connections */}
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <label className="text-sm font-medium text-white/80">最大连接数 (Max Connections)</label>
-                    <span className="text-xs text-pink-300 font-mono">{embeddingConfig.maxConnections}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="50"
-                    step="1"
-                    value={embeddingConfig.maxConnections}
-                    onChange={(e) => handleEmbeddingChange('maxConnections', parseFloat(e.target.value))}
-                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-pink-400"
-                  />
-                </div>
-              </div>
-            )
-          }
-
-          {
-            activeTab === 'audio' && (
-              <div className="space-y-6">
-                <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-                    <Volume2 className="w-4 h-4 text-pink-400" /> 音效测试与调试
-                  </h3>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">基础交互</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={playClickSound} className="p-3 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs text-left">👆 点击 (Click)</button>
-                        <button onClick={playKnowSound} className="p-3 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-200 text-xs text-left">✨ 认识 (Know)</button>
-                        <button onClick={playSuccessSound} className="p-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-xs text-left">🎵 拼写成功 (Chime)</button>
-                        <button onClick={playFailSound} className="p-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs text-left">❌ 失败 (Fail)</button>
+                {
+                  activeTab === 'hotkey' && (
+                    <div className="space-y-6">
+                      <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <HotkeySettings />
                       </div>
                     </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">复习评级</label>
-                      <div className="grid grid-cols-4 gap-2">
-                        <button onClick={playReviewAgainSound} className="p-3 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-200 text-xs">1 重来</button>
-                        <button onClick={playReviewHardSound} className="p-3 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-200 text-xs">2 困难</button>
-                        <button onClick={playReviewGoodSound} className="p-3 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-200 text-xs">3 良好</button>
-                        <button onClick={playReviewEasySound} className="p-3 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-200 text-xs">4 简单</button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">场景音效</label>
-                      <button onClick={playSessionCompleteSound} className="w-full p-4 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 border border-white/10 text-white font-medium flex items-center justify-center gap-2 shadow-lg">
-                        🎉 学习完成 (Victory Fanfare)
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
-          {
-            activeTab === 'api' && (
-              <div className="space-y-6">
-                <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-                    <Key className="w-4 h-4 text-pink-400" /> DeepSeek API 配置
-                  </h3>
-
-                  {/* API Key Input */}
-                  <div className="space-y-3 mb-6">
-                    <label className="text-sm font-medium text-white/80">API Key</label>
-                    <input
-                      type="password"
-                      value={apiKey || ''}
-                      onChange={(e) => onApiKeyChange?.(e.target.value)}
-                      placeholder="sk-..."
-                      className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-pink-500/50 transition-all font-mono text-sm"
-                    />
-                    <p className="text-xs text-white/40">
-                      您的 Key 仅存储在本地浏览器中，不会上传到任何服务器。
-                      <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-pink-400 hover:text-pink-300 ml-1">
-                        获取 API Key &rarr;
-                      </a>
-                    </p>
-                  </div>
-
-                  {/* API Stats Monitor */}
-                  <div className="space-y-2 pt-4 border-t border-white/5">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-bold text-white/60 uppercase tracking-wider">API 用量监控 (本地统计)</label>
-                      <button
-                        onClick={() => {
-                          if (confirm('确定要重置由于统计数据吗？')) {
-                            import('@/lib/deepseek').then(m => m.resetUsageStats());
-                            // Force re-render would require state, but for now simple alert
-                            alert('统计已重置');
-                          }
-                        }}
-                        className="text-[10px] text-white/30 hover:text-white/80 transition-colors"
-                      >
-                        重置统计
-                      </button>
-                    </div>
-                    <ApiUsageStatsView />
-                  </div>
-                </div>
-
-                {/* 皮肤选择 (原有逻辑) */}
-                <div className="bg-black/20 rounded-xl p-4 border border-white/5 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Palette className="w-4 h-4 text-pink-400" />
-                    <h3 className="text-sm font-medium text-white/90">外观主题 (Skin)</h3>
-                  </div>
-                </div>
-
-                {/* 省流模式 */}
-                <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-white font-bold flex items-center gap-2">
-                        💰 省流模式
-                      </h3>
-                      <p className="text-xs text-white/50 mt-1">
-                        开启后，知识网络中不再调用 DeepSeek 生成词汇间联系说明，能节省大量 Token。
-                      </p>
-                    </div>
-                    <button
-                      title="切换省流模式"
-                      onClick={() => {
-                        const newValue = !tokenSaverMode;
-                        setTokenSaverMode(newValue);
-                        localStorage.setItem('token_saver_mode', newValue.toString());
-                      }}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${tokenSaverMode
-                        ? 'bg-emerald-500'
-                        : 'bg-white/20'
-                        }`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${tokenSaverMode
-                          ? 'translate-x-7'
-                          : 'translate-x-1'
-                          }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
-          {
-            activeTab === 'hotkey' && (
-              <div className="space-y-6">
-                <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <HotkeySettings />
-                </div>
-              </div>
-            )
-          }
-        </div >
+                  )
+                }
+              </div >
 
         {/* Footer */}
-        <div className="p-6 border-t border-white/5 flex gap-3 bg-black/20" >
-          <button
-            onClick={onRestoreDefaults}
-            className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-all flex items-center justify-center gap-2 font-medium text-xs"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> 恢复默认
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-pink-500/20 text-sm hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <Save className="w-4 h-4" /> 完成
-          </button>
+          <div className="p-6 border-t border-white/5 flex gap-3 bg-black/20" >
+            <button
+              onClick={onRestoreDefaults}
+              className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-all flex items-center justify-center gap-2 font-medium text-xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> 恢复默认
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-pink-500/20 text-sm hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Save className="w-4 h-4" /> 完成
+            </button>
+          </div >
         </div >
       </div >
-    </div >
-  );
+      );
 }
