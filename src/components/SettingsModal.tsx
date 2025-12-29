@@ -16,6 +16,7 @@ import { syncManager } from '@/lib/sync-manager';
 import { resetDatabase } from '@/lib/db';
 import { supabase } from '@/lib/supabase';
 import { importOfficialDeck, OFFICIAL_DECKS, type OfficialDeckType, type OfficialImportProgress } from '@/lib/import-official';
+import { EmbeddingService } from '@/lib/embedding';
 
 export interface LiquidGlassSettings {
   opacity: number;
@@ -583,7 +584,12 @@ export function SettingsModal({
                                     setImportProgress({ total: p.total, current: p.count, word: p.currentWord });
                                   });
 
-                                  alert(`${OFFICIAL_DECKS[type].name} 导入成功！`);
+                                  // [FIX] Trigger Clustering
+                                  setImportProgress(prev => ({ ...prev, word: '正在构建语义分组... (需约 5-10 秒)' }));
+                                  const deckId = OFFICIAL_DECKS[type].id;
+                                  await EmbeddingService.getInstance().getDeckClusters(deckId, undefined, true);
+
+                                  alert(`${OFFICIAL_DECKS[type].name} 导入成功！\n已自动生成语义分组。`);
                                   window.location.reload();
                                 } catch (error: any) {
                                   console.error('Import failed:', error);
@@ -604,7 +610,13 @@ export function SettingsModal({
                                           await importOfficialDeck(type, file, (p) => {
                                             setImportProgress({ total: p.total, current: p.count, word: p.currentWord });
                                           });
-                                          alert(`${OFFICIAL_DECKS[type].name} (手动) 导入成功！`);
+
+                                          // [FIX] Trigger Clustering
+                                          setImportProgress(prev => ({ ...prev, word: '正在构建语义分组... (需约 5-10 秒)' }));
+                                          const deckId = OFFICIAL_DECKS[type].id;
+                                          await EmbeddingService.getInstance().getDeckClusters(deckId, undefined, true);
+
+                                          alert(`${OFFICIAL_DECKS[type].name} (手动) 导入成功！\n已自动生成语义分组。`);
                                           window.location.reload();
                                         } catch (manualErr: any) {
                                           alert('导入失败: ' + manualErr.message);
