@@ -14,10 +14,10 @@ import { getAllCards, getDueCards, getNewCards, saveCard, addReviewLog, getActiv
 import { enrichWord, generateExample, generateMnemonic, generateMeaning, generatePhrases, generateDerivatives, generateRoots, generateSyllables, fetchBasicInfo, generateReadingMaterial, getDefinitionInContext } from '@/lib/deepseek';
 import type { WordCard, Deck } from './types';
 import { type RecordLog } from 'ts-fsrs';
-import { Save, ArrowLeft, Upload, Loader2, Palette, X, Database, User } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, Palette, X, Database, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initTTS, speak } from '@/lib/tts';
-import { importTem8Deck } from '@/lib/import-tem8';
+
 import { seedFromLocalJSON } from '@/lib/seed';
 import { EmbeddingService, type EmbeddingConfig } from '@/lib/embedding';
 import { GlobalSelectionMenu } from '@/components/GlobalSelectionMenu';
@@ -197,31 +197,7 @@ function AppContent() {
         EmbeddingService.getInstance().updateConfig(config);
     };
 
-    const handleImportTem8 = async () => {
-        if (!confirm('确定要导入专八词汇吗？可能需要几秒钟时间。')) return;
 
-        setIsImporting(true);
-        setImportType('tem8');
-        setImportProgress({ count: 0, total: 0 });
-        try {
-            const { count, deckId } = await importTem8Deck((c, t) => {
-                setImportProgress({ count: c, total: t });
-            });
-            alert(`成功导入 ${count} 个单词！`);
-
-            // Navigate to the new deck
-            if (deckId) {
-                handleSelectDeck(deckId);
-            }
-        } catch (e) {
-            console.error(e);
-            alert('导入失败，请检查控制台日志。');
-        } finally {
-            setIsImporting(false);
-            setImportType(null);
-            setImportProgress(null);
-        }
-    };
 
     const handleImportTest = async () => {
         if (!confirm('确定要导入100个测试单词吗？这将生成关联关系，可能需要几分钟。')) return;
@@ -1372,31 +1348,7 @@ function AppContent() {
                             <div className="glass-panel p-6 space-y-4">
                                 <h3 className="text-lg font-medium mb-2">数据管理</h3>
                                 <div className="space-y-2">
-                                    <button
-                                        onClick={handleImportTem8}
-                                        disabled={isImporting}
-                                        className="w-full glass-button py-3 font-semibold flex items-center justify-center gap-2 disabled:opacity-50 relative overflow-hidden"
-                                    >
-                                        {isImporting && importType === 'tem8' && importProgress && importProgress.total > 0 && (
-                                            <div
-                                                className="absolute left-0 top-0 bottom-0 bg-white/10 transition-all duration-300"
-                                                style={{ width: `${(importProgress.count / importProgress.total) * 100}%` }}
-                                            />
-                                        )}
-                                        <div className="relative z-10 flex items-center gap-2">
-                                            {isImporting && importType === 'tem8' ? (
-                                                <>
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                    {importProgress ? `导入中 ${importProgress.count}/${importProgress.total}` : '导入中...'}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Upload className="w-4 h-4" />
-                                                    导入专八核心词汇 (Level8)
-                                                </>
-                                            )}
-                                        </div>
-                                    </button>
+
 
                                     <button
                                         onClick={handleImportTest}

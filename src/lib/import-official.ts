@@ -111,7 +111,7 @@ export async function importOfficialDeck(
         description: `${config.name} 核心词汇 (共 ${items.length} 词)`,
         theme: config.theme,
         createdAt: existingDeck ? existingDeck.createdAt : new Date(),
-        updatedAt: new Date()
+        updatedAt: Date.now()
     };
 
     await createDeck(deck);
@@ -119,7 +119,7 @@ export async function importOfficialDeck(
     // 4. Batch Process Cards
     const BATCH_SIZE = 100;
     const cardsToSave: WordCard[] = [];
-    const semanticConnectionsToSave: any[] = []; // We process this sequentially if needed, but db.ts handles semantic connections separately
+    // Semantic connections handled directly below
 
     let processedCount = 0;
 
@@ -171,7 +171,7 @@ export async function importOfficialDeck(
             if (content?.syno?.synos) {
                 for (const group of content.syno.synos) {
                     if (group.hwds) {
-                        for (const s of group.hwds) {
+                        for (const _s of group.hwds) {
                             // Save logic is async, we can await it or fire and forget? 
                             // For reliability we should await, but for speed we wait for batch.
                             // Actually saveSemanticConnections is a single op. We'll do it sequentially for now inside the batch loop.
@@ -200,7 +200,14 @@ export async function importOfficialDeck(
                     for (const group of content.syno.synos) {
                         if (group.hwds) {
                             for (const s of group.hwds) {
-                                await saveSemanticConnections(word, s.w, 'synonym');
+                                await saveSemanticConnections({
+                                    source: word,
+                                    connections: [{
+                                        target: s.w,
+                                        similarity: 0.8,
+                                        label: 'synonym'
+                                    }]
+                                });
                             }
                         }
                     }
@@ -210,7 +217,14 @@ export async function importOfficialDeck(
                     for (const group of content.relWord.rels) {
                         if (group.words) {
                             for (const w of group.words) {
-                                await saveSemanticConnections(word, w.hwd, 'derivative');
+                                await saveSemanticConnections({
+                                    source: word,
+                                    connections: [{
+                                        target: w.hwd,
+                                        similarity: 0.6,
+                                        label: 'derivative'
+                                    }]
+                                });
                             }
                         }
                     }
