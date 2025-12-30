@@ -812,8 +812,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         c.state === State.New && !groupWordSet.has(c.word.toLowerCase())
                     );
 
-                    // Find top 15 related context words
-                    const relatedWords = await db.findContextWords(groupWords, 15, candidates.map(c => c.word));
+                    // Find top 5 related context words (Reduced from 15 to reduce clutter)
+                    const relatedWords = await db.findContextWords(groupWords, 5, candidates.map(c => c.word));
 
                     relatedWords.forEach(w => {
                         const card = candidates.find(c => c.word.toLowerCase() === w.toLowerCase());
@@ -839,7 +839,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             const allWords = allNodes.map(n => n.label);
 
             // 4. Compute Internal Connections (Real-time)
-            const allConnections = await db.computeGroupConnections(allWords, 0.6);
+            // [OPTIMIZED] Increased threshold to 0.65 to reduce weak links
+            const allConnections = await db.computeGroupConnections(allWords, 0.65);
 
             const simplifiedLinks: any[] = [];
             const linkSet = new Set<string>();
@@ -850,9 +851,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                 const myConnections = allConnections.filter(c => c.source === w || c.target === w);
                 myConnections.sort((a, b) => b.similarity - a.similarity);
 
-                // Limit: Topic nodes 4, Context nodes 2
+                // Limit: Topic nodes 3, Context nodes 1 (Reduced for cleaner graph)
                 const isTopic = nodes.some(n => n.label.toLowerCase() === w);
-                const limit = isTopic ? 4 : 2;
+                const limit = isTopic ? 3 : 1;
 
                 const topK = myConnections.slice(0, limit);
 
@@ -2004,230 +2005,125 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             }) || false;
         }
 
+
         const isRelevant = isActive || isNeighbor || isHovered || isHoveredNeighbor || isHighlighted || isJustLearned || isCompleted || isContext;
 
-        // 1. Ghost Mode (Inactive but Visible)
-        // [User Request]: Show unselected words as inactive/ghost nodes with visible word balls and labels.
-        if (!isRelevant) {
-            // [FIX]: Dimmed Ghost Mode (Waiting to be lit up)
-            // User requested "gray/dim mode" for unselected words.
-
-            const ghostR = Math.sqrt(node.val || 1) * 1.2; // Slightly reduced size (was 2.0)
-
-            ctx.save(); // Protect context
-            ctx.globalAlpha = 0.4; // Low opacity (Dimmed)
-
-            // 1. Very Subtle Glow (Just to separate from background)
-            const ghostGlowRadius = ghostR * 1.5;
-            const ghostGradient = ctx.createRadialGradient(node.x, node.y, ghostR * 0.2, node.x, node.y, ghostGlowRadius);
-            ghostGradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-            ghostGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, ghostGlowRadius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = ghostGradient;
-            ctx.fill();
-
-            // 2. Ghost Body (Gray/Glassy)
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, ghostR, 0, 2 * Math.PI, false);
-            ctx.fillStyle = 'rgba(200, 200, 200, 0.15)'; // Very faint gray
-            ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)'; // Faint stroke
-            ctx.lineWidth = 1; // Thin line
-            ctx.fill();
-            ctx.stroke();
-
-            // 3. Ghost Label (Subtle but readable)
-            if (true) {
-                const fontSize = 12; // Standard font size
-                ctx.font = `${fontSize}px Sans-Serif`;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = 'rgba(220, 220, 220, 0.5)'; // Dimmed white text
-                // No strong shadow, just a faint outline for contrast if needed
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowBlur = 2;
-                ctx.fillText(label, node.x + ghostR + 4, node.y);
-            }
-
-            ctx.restore();
-            // Return early since we handled the drawing for this node
-            return;
-        }
-
-        // Dynamic Depth of Field (DoF)
-        const isFocused = phase === 'overview' || isActive || isCompleted || isNeighbor || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor;
-        const dofScale = isFocused ? 1 : (isContext ? 0.6 : 0.6);
-
-        const r = Math.sqrt(node.val || 1) * dofScale;
-
-        // Neighbor Color Logic
-        let neighborRelationColor: string | null = null;
-        if (isNeighbor && currentItem?.nodeId) {
-            const link = graphData?.links.find((l: any) => {
-                const sId = typeof l.source === 'object' ? l.source.id : l.source;
-                const tId = typeof l.target === 'object' ? l.target.id : l.target;
-                return (sId === currentItem.nodeId && tId === node.id) ||
-                    (sId === node.id && tId === currentItem.nodeId);
-            });
-            if (link && link.label) {
-                const lbl = link.label.toLowerCase();
-                if (lbl.includes('近义') || lbl.includes('synonym')) neighborRelationColor = '#4ade80';
-                else if (lbl.includes('反义') || lbl.includes('antonym')) neighborRelationColor = '#f87171';
-                else if (lbl.includes('派生') || lbl.includes('derivative')) neighborRelationColor = '#a78bfa';
-                else if (lbl.includes('形似') || lbl.includes('look-alike')) neighborRelationColor = '#facc15';
-                else if (lbl.includes('搭配') || lbl.includes('collocation')) neighborRelationColor = '#60a5fa';
-                else if (lbl.includes('场景') || lbl.includes('scenario')) neighborRelationColor = '#22d3ee';
-                else if (lbl.includes('相关') || lbl.includes('related') || lbl.includes('关联')) neighborRelationColor = '#94a3b8';
-                else neighborRelationColor = '#cbd5e1';
-            }
-        }
+        // [OPTIMIZED] Solar System Visual Hierarchy
+        // 1. Sun (Current Item): Huge, Glowing, Pulsing
+        // 2. Planets (Neighbors): Medium, Colored by relation
+        // 3. Stars (Context/Others): Tiny, Dimmed, No Label (unless hovered)
 
         const time = Date.now();
         const pulse = (Math.sin(time * 0.003) + 1) / 2;
-        const breathingScale = 1 + pulse * 0.2;
 
-        const finalScale = (isJustLearned || isHighlighted) ? breathingScale * 1.5 : breathingScale;
+        // --- 1. Determine Node Role ---
+        let role = 'star'; // default
+        if (isActive) role = 'sun';
+        else if (isNeighbor || isHighlighted || isHoveredNeighbor) role = 'planet';
+        else if (isContext || !isRelevant) role = 'star';
+        else if (isCompleted) role = 'planet'; // Completed nodes are also important
 
-        // Visibility Logic
-        const isVisible = isFocused || (isContext);
-        const opacity = isVisible ? 1 : 0.1;
+        // --- 2. Size Calculation ---
+        let baseR = Math.sqrt(node.val || 1);
+        if (role === 'sun') baseR *= 2.5; // Sun is huge
+        else if (role === 'planet') baseR *= 1.2; // Planets are medium
+        else baseR *= 0.4; // Stars are tiny
 
-        ctx.save();
-        ctx.globalAlpha = opacity;
-
-        if (isActive || isJustLearned || isHighlighted || isHovered || isHoveredNeighbor) {
-            const baseColor = isActive ? '#ffffff' : (isHighlighted ? '#facc15' : ((isHovered || isHoveredNeighbor) ? '#60a5fa' : '#10b981'));
-            const glowColor = isActive ? 'rgba(255, 255, 255, 0.5)' : (isHighlighted ? 'rgba(250, 204, 21, 0.5)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.5)' : 'rgba(16, 185, 129, 0.4)'));
-
-            // Halo
-            const haloScale = (isHoveredNeighbor) ? 0.7 : 1.0;
-            const haloRadius = r * 5 * finalScale * haloScale;
-            const haloGradient = ctx.createRadialGradient(node.x, node.y, r, node.x, node.y, haloRadius);
-            haloGradient.addColorStop(0, glowColor);
-            haloGradient.addColorStop(1, 'rgba(0,0,0,0)');
-
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, haloRadius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = haloGradient;
-            ctx.fill();
-
-            // Ripple
-            if (isActive || isHighlighted || isHovered) {
-                const rippleRadius = r * 3 * (1 + (Math.sin(time * 0.002) + 1) * 0.3);
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, rippleRadius, 0, 2 * Math.PI, false);
-                const rippleColor = isActive ? '255, 255, 255' : (isHighlighted ? '250, 204, 21' : '96, 165, 250');
-                ctx.strokeStyle = `rgba(${rippleColor}, ${0.6 - (Math.sin(time * 0.002) + 1) * 0.3})`;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                const rippleRadius2 = r * 2 * (1 + (Math.cos(time * 0.002) + 1) * 0.2);
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, rippleRadius2, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = `rgba(${rippleColor}, ${0.5 - (Math.cos(time * 0.002) + 1) * 0.2})`;
-                ctx.lineWidth = 0.5;
-                ctx.stroke();
-            }
-
-            // Mid Glow
-            const glowRadius = r * 3;
-            const glowGradient = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, glowRadius);
-            const midGlowColor = isActive ? 'rgba(255, 255, 255, 0.8)' : (isHighlighted ? 'rgba(250, 204, 21, 0.6)' : ((isHovered || isHoveredNeighbor) ? 'rgba(96, 165, 250, 0.6)' : 'rgba(52, 211, 153, 0.6)'));
-            glowGradient.addColorStop(0, midGlowColor);
-            glowGradient.addColorStop(1, 'rgba(0,0,0,0)');
-
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, glowRadius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = glowGradient;
-            ctx.fill();
-
-            // Core Orb
-            const coreRadius = r * 1.5;
-            const coreGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, coreRadius);
-            coreGradient.addColorStop(0, '#ffffff');
-            const coreMidColor = isActive ? '#f8fafc' : (isHighlighted ? '#fde047' : ((isHovered || isHoveredNeighbor) ? '#bfdbfe' : '#6ee7b7'));
-            coreGradient.addColorStop(0.3, coreMidColor);
-            coreGradient.addColorStop(0.7, baseColor);
-            coreGradient.addColorStop(1, 'rgba(0,0,0,0)');
-
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, coreRadius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = coreGradient;
-            ctx.fill();
-        } else {
-            // Standard Rendering
-            let color = '#94a3b8';
-            if (isContext) {
-                color = '#cbd5e1'; // Light Gray for Context
-            } else if (isNeighbor) {
-                color = neighborRelationColor || '#ffffff';
-            } else if (isCompleted) {
-                color = '#ec4899';
-            } else if (node.type === 'root') {
-                color = '#f472b6';
-            } else if (node.type === 'topic') {
-                color = '#6366f1';
-            }
-
-            // Shadow
-            if (isNeighbor) {
-                ctx.shadowColor = neighborRelationColor || 'rgba(255, 255, 255, 0.6)';
-                ctx.shadowBlur = 30;
-            } else if (isCompleted) {
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = color;
-            } else if (phase === 'overview') {
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = color;
-            } else {
-                ctx.shadowBlur = 0;
-            }
-
-            // Draw Node
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
-
-            const gradient = ctx.createRadialGradient(node.x, node.y, r * 0.1, node.x, node.y, r);
-            gradient.addColorStop(0, '#ffffff');
-            gradient.addColorStop(0.4, color);
-            gradient.addColorStop(1, color);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-
-            ctx.shadowBlur = 0;
-
-            // Rings
-            if (isNeighbor) {
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = neighborRelationColor || 'rgba(255, 255, 255, 0.4)';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-            }
+        // Breathing effect for Sun
+        if (role === 'sun') {
+            baseR *= (1 + pulse * 0.1);
         }
 
-        // Draw Label
-        if (true) { // Always show if relevant
-            const fontSize = isActive ? 12 : (node.type === 'root' ? 10 : (node.type === 'topic' ? 8 : 6));
+        // --- 3. Draw Node Body ---
+        ctx.save();
 
-            ctx.font = `${(isCompleted || isActive || isHighlighted) ? 'bold ' : ''}${fontSize}px Sans-Serif`;
+        if (role === 'sun') {
+            // SUN RENDER
+            // Core
+            const sunGradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, baseR);
+            sunGradient.addColorStop(0, '#ffffff');
+            sunGradient.addColorStop(0.2, '#fef08a'); // Yellow-ish core
+            sunGradient.addColorStop(1, '#facc15'); // Gold edge
+
+            ctx.shadowColor = '#facc15';
+            ctx.shadowBlur = 40;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, baseR, 0, 2 * Math.PI);
+            ctx.fillStyle = sunGradient;
+            ctx.fill();
+
+            // Corona (Glow)
+            const coronaR = baseR * 2.5;
+            const coronaGradient = ctx.createRadialGradient(node.x, node.y, baseR, node.x, node.y, coronaR);
+            coronaGradient.addColorStop(0, 'rgba(250, 204, 21, 0.4)');
+            coronaGradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+            ctx.fillStyle = coronaGradient;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, coronaR, 0, 2 * Math.PI);
+            ctx.fill();
+
+        } else if (role === 'planet') {
+            // PLANET RENDER
+            // Determine color based on relation
+            let planetColor = '#cbd5e1'; // Default gray
+            if (isNeighbor && currentItem?.nodeId) {
+                const link = graphData?.links.find((l: any) => {
+                    const sId = typeof l.source === 'object' ? l.source.id : l.source;
+                    const tId = typeof l.target === 'object' ? l.target.id : l.target;
+                    return (sId === currentItem.nodeId && tId === node.id) || (sId === node.id && tId === currentItem.nodeId);
+                });
+                if (link && link.label) {
+                    const l = link.label.toLowerCase();
+                    if (l.includes('synonym') || l.includes('近义')) planetColor = '#4ade80';
+                    else if (l.includes('antonym') || l.includes('反义')) planetColor = '#f87171';
+                    else if (l.includes('derivative') || l.includes('派生')) planetColor = '#a78bfa';
+                    else planetColor = '#60a5fa';
+                }
+            } else if (isCompleted) {
+                planetColor = '#10b981'; // Green for completed
+            }
+
+            ctx.shadowColor = planetColor;
+            ctx.shadowBlur = 10;
+
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, baseR, 0, 2 * Math.PI);
+            ctx.fillStyle = planetColor;
+            ctx.fill();
+
+            // Ring for neighbors
+            if (isNeighbor) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+        } else {
+            // STAR RENDER (Background)
+            // Tiny white dot, dimmed
+            ctx.globalAlpha = isHovered ? 0.8 : 0.2;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, baseR, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- 4. Draw Label ---
+        // Only show label for Sun, Planets, or Hovered Stars
+        if (role === 'sun' || role === 'planet' || isHovered) {
+            ctx.globalAlpha = 1;
+            const fontSize = role === 'sun' ? 14 : 10;
+            ctx.font = `${role === 'sun' ? 'bold ' : ''}${fontSize}px Sans-Serif`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
 
-            if (isNeighbor || isActive || isJustLearned || isHighlighted) {
-                ctx.fillStyle = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : '#ffffff');
-                ctx.shadowColor = (isHighlighted) ? '#facc15' : ((isNeighbor && neighborRelationColor) ? neighborRelationColor : 'rgba(255, 255, 255, 0.6)');
-                ctx.shadowBlur = 4;
-            } else if (isContext) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; // Faint text for context
-                ctx.shadowBlur = 0;
-            } else {
-                ctx.fillStyle = isCompleted ? '#fff' : 'rgba(255, 255, 255, 0.7)';
-                ctx.shadowBlur = 0;
-            }
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 4;
 
-            ctx.fillText(label, node.x + r + 8, node.y);
+            const labelX = node.x + baseR + (role === 'sun' ? 8 : 5);
+            ctx.fillText(label, labelX, node.y);
         }
 
         ctx.restore();
@@ -3368,8 +3264,8 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                             height={dimensions.height}
                             warmupTicks={50}
                             cooldownTicks={100}
-                            d3AlphaDecay={0.02}
-                            d3VelocityDecay={0.3}
+                            d3AlphaDecay={0.01} // Slower decay for smoother settling
+                            d3VelocityDecay={0.4} // Higher friction to prevent jitter
                             enableNodeDrag={true}
 
                             linkDirectionalParticleWidth={4}

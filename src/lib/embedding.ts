@@ -821,6 +821,21 @@ export class EmbeddingService {
                     totalDeckSize: cardsToCluster.length // Store total count to handle words without embeddings
                 });
 
+                // [DUAL-WRITE] Also save to cloud for cross-device sync
+                try {
+                    const { saveDeckClustersCache } = await import('./supabase-db');
+                    await saveDeckClustersCache({
+                        deckId,
+                        clusters: lightweightClusters,
+                        updatedAt: Date.now(),
+                        totalDeckSize: cardsToCluster.length
+                    });
+                    console.log('[Cloud Sync] Saved clusters to cloud for deck:', deckId);
+                } catch (cloudError) {
+                    // Non-blocking: Cloud save failure should not break local flow
+                    console.warn('[Cloud Sync] Failed to save clusters to cloud:', cloudError);
+                }
+
                 return clusters;
             } finally {
                 this.runningRequests.delete(requestKey);

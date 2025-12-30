@@ -503,6 +503,32 @@ export async function saveGroupGraphCache(data: { id: string; nodes: any[]; link
     return db.put('group_graphs', data);
 }
 
+// ==================== Deck Clusters Cache ====================
+
+/**
+ * @description 获取分组缓存
+ */
+export async function getDeckClustersCache(deckId: string) {
+    const db = await getDB();
+    return db.get('deck_clusters', deckId);
+}
+
+/**
+ * @description 保存分组缓存
+ */
+export async function saveDeckClustersCache(data: { deckId: string; clusters: any[]; updatedAt: number; totalDeckSize?: number }) {
+    const db = await getDB();
+    return db.put('deck_clusters', data);
+}
+
+/**
+ * @description 获取所有分组缓存 (用于同步)
+ */
+export async function getAllDeckClusters() {
+    const db = await getDB();
+    return db.getAll('deck_clusters');
+}
+
 /**
  * @description 重置数据库 (清空所有数据)
  * 用于完全重置应用状态，包括删除所有卡片、日志、分组缓存等。

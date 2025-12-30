@@ -214,6 +214,38 @@ async function saveLogsToCloud(logs: (ReviewLog & { cardId: string })[]) {
     if (error) throw error;
 }
 
+// Fetch clusters updated since timestamp
+async function fetchClustersUpdatedSince(lastSync: number) {
+    if (!supabase) return [];
+    const timeStr = new Date(lastSync).toISOString();
+    const { data, error } = await supabase
+        .from('deck_clusters')
+        .select('*')
+        .gt('updated_at', timeStr);
+
+    if (error) throw error;
+    return (data || []).map((c: any) => ({
+        deckId: c.deck_id,
+        clusters: c.clusters,
+        updatedAt: new Date(c.updated_at).getTime(),
+        totalDeckSize: c.total_deck_size
+    }));
+}
+
+// Save clusters to cloud
+async function saveClustersToCloud(clusters: Array<{ deckId: string; clusters: any[]; updatedAt: number; totalDeckSize?: number }>) {
+    if (!supabase || !currentUserId || clusters.length === 0) return;
+    const dbClusters = clusters.map(c => ({
+        deck_id: c.deckId,
+        user_id: currentUserId,
+        clusters: c.clusters,
+        total_deck_size: c.totalDeckSize,
+        updated_at: new Date(c.updatedAt).toISOString(),
+    }));
+    const { error } = await supabase.from('deck_clusters').upsert(dbClusters, { onConflict: 'deck_id' });
+    if (error) throw error;
+}
+
 // -------------------------------------------------------------
 // MESSAGE HANDLER
 // -------------------------------------------------------------
@@ -284,6 +316,16 @@ self.onmessage = async (e: MessageEvent<SyncMessage>) => {
                 await saveLogsToCloud(dirtyLogs);
             }
 
+            // Push Clusters
+            console.log('[Sync Worker] Checking local clusters...');
+            const allLocalClusters = await localDB.getAllDeckClusters();
+            const dirtyClusters = allLocalClusters.filter(c => c.updatedAt > lastSync);
+            if (dirtyClusters.length > 0) {
+                console.log(`[Sync Worker] Pushing ${dirtyClusters.length} dirty clusters...`);
+                self.postMessage({ type: 'STATUS', status: 'syncing', message: `Pushing ${dirtyClusters.length} clusters...` } as WorkerResponse);
+                await saveClustersToCloud(dirtyClusters);
+            }
+
             // --------------------------------------------------
             // PULL LOGIC (Incremental)
             // --------------------------------------------------
@@ -311,6 +353,17 @@ self.onmessage = async (e: MessageEvent<SyncMessage>) => {
                     await localDB.saveCards(remoteCards);
                 } else {
                     console.log('[Sync Worker] No remote updates.');
+                }
+
+                // Pull Clusters
+                console.log('[Sync Worker] [Full Sync] Pulling remote clusters...');
+                const remoteClusters = await fetchClustersUpdatedSince(pullTimestamp);
+                if (remoteClusters.length > 0) {
+                    console.log(`[Sync Worker] Pulled ${remoteClusters.length} clusters. Saving to IDB...`);
+                    self.postMessage({ type: 'STATUS', status: 'syncing', message: `Updating ${remoteClusters.length} clusters...` } as WorkerResponse);
+                    for (const c of remoteClusters) {
+                        await localDB.saveDeckClustersCache(c);
+                    }
                 }
             } else {
                 console.log('[Sync Worker] Check-Only Mode (Push-Only). Skipping Pull.');

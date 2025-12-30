@@ -184,7 +184,10 @@ export function DeckDetail({
       await service.batchProcess(words, (current, total, stage) => {
         setBuildProgress({ current, total, stage });
       });
-      alert(`✅ 成功为 ${cards.length} 个单词构建了语义关联！`);
+      // Phase 2: Generate Semantic Clusters (分组)
+      setBuildProgress({ current: cards.length, total: cards.length, stage: '正在生成语义分组...' });
+      await service.getDeckClusters(deckId, undefined, true);
+      alert(`✅ 成功为 ${cards.length} 个单词构建了语义关联并生成了分组！`);
     } catch (error) {
       console.error('Failed to build knowledge graph:', error);
       alert('构建失败，请查看控制台。');
