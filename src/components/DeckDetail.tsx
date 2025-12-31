@@ -89,6 +89,7 @@ export function DeckDetail({
   const [activeTab, setActiveTab] = useState<TabType>('due');
   const [displayLimit, setDisplayLimit] = useState(100);
   const [showStats, setShowStats] = useState(false);
+  const [showWordList, setShowWordList] = useState(false); // 单词列表默认折叠
 
   /* 
    * Removed unused imports and variables:
@@ -538,131 +539,173 @@ export function DeckDetail({
         <Plus className="w-8 h-8" />
       </motion.button>
 
-      {/* 3. WORD LIST */}
+      {/* 3. WORD LIST - 可折叠 */}
       <div className="space-y-4">
-        <div className="flex flex-col gap-4 sticky top-4 z-20 glass-panel p-2 backdrop-blur-xl">
-          <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-white/30 ml-2" />
-            <input
-              type="text"
-              placeholder="搜索单词..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="flex-1 bg-transparent border-none text-sm text-white placeholder:text-white/20 focus:outline-none"
-            />
-            <div className="w-px h-4 bg-white/10" />
-            <div className="flex gap-1 overflow-x-auto no-scrollbar">
-              {(['due', 'learned', 'unlearned', 'familiar', 'important'] as const).map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-all",
-                    activeTab === tab
-                      ? "bg-white/20 text-white font-bold"
-                      : "text-white/40 hover:bg-white/5 hover:text-white/80"
-                  )}
-                >
-                  {tab === 'due' && '待复习'}
-                  {tab === 'learned' && '已学'}
-                  {tab === 'unlearned' && '未学'}
-                  {tab === 'familiar' && '熟悉'}
-                  {tab === 'important' && '重点'}
-                </button>
-              ))}
+        {/* 折叠/展开按钮 */}
+        <motion.button
+          onClick={() => setShowWordList(!showWordList)}
+          className="w-full glass-panel p-4 flex items-center justify-between hover:bg-white/5 transition-colors group"
+          whileTap={{ scale: 0.99 }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-white/5">
+              <BookOpen className="w-4 h-4 text-white/60" />
+            </div>
+            <div className="text-left">
+              <div className="text-sm font-medium text-white">单词列表</div>
+              <div className="text-xs text-white/40">
+                共 {filteredCards.length} 个单词 · 点击{showWordList ? '收起' : '展开'}
+              </div>
             </div>
           </div>
-        </div>
+          <motion.div
+            animate={{ rotate: showWordList ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="text-white/40 group-hover:text-white/60 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </motion.div>
+        </motion.button>
 
-        <AnimatePresence mode="popLayout">
-          {visibleCards.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2">
-              {visibleCards.map(card => (
-                <motion.div
-                  layout
-                  key={card.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="glass-panel p-0 overflow-hidden"
-                >
-                  <div
-                    onClick={() => toggleExpand(card.id)}
-                    className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer"
-                  >
-                    <div className="flex-1 min-w-0 mr-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-white text-base truncate">{card.word}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/40">{card.partOfSpeech || 'n.'}</span>
-                        {card.isImportant && <Heart className="w-3 h-3 text-red-500 fill-current" />}
-                      </div>
-                      <p className="text-xs text-white/50 line-clamp-1">{card.meaning}</p>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      {activeTab === 'learned' && (
-                        <div className="flex flex-col items-end">
-                          <span className="text-[10px] text-white/30">下次复习</span>
-                          <span className="text-xs font-bold text-blue-300 font-mono bg-blue-500/10 px-2 py-0.5 rounded">
-                            {getNextReviewTime(card.due)}
-                          </span>
-                        </div>
-                      )}
+        {/* 可折叠的单词列表内容 */}
+        <AnimatePresence>
+          {showWordList && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="overflow-hidden"
+            >
+              {/* 搜索和筛选工具栏 */}
+              <div className="flex flex-col gap-4 sticky top-4 z-20 glass-panel p-2 backdrop-blur-xl mb-2">
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-white/30 ml-2" />
+                  <input
+                    type="text"
+                    placeholder="搜索单词..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="flex-1 bg-transparent border-none text-sm text-white placeholder:text-white/20 focus:outline-none"
+                  />
+                  <div className="w-px h-4 bg-white/10" />
+                  <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                    {(['due', 'learned', 'unlearned', 'familiar', 'important'] as const).map(tab => (
                       <button
-                        onClick={(e) => handleDeleteCard(e, card.id)}
-                        className="p-2 text-white/10 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-all",
+                          activeTab === tab
+                            ? "bg-white/20 text-white font-bold"
+                            : "text-white/40 hover:bg-white/5 hover:text-white/80"
+                        )}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {tab === 'due' && '待复习'}
+                        {tab === 'learned' && '已学'}
+                        {tab === 'unlearned' && '未学'}
+                        {tab === 'familiar' && '熟悉'}
+                        {tab === 'important' && '重点'}
                       </button>
-                    </div>
+                    ))}
                   </div>
+                </div>
+              </div>
 
-                  <AnimatePresence>
-                    {expandedCardId === card.id && (
+              <AnimatePresence mode="popLayout">
+                {visibleCards.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-2">
+                    {visibleCards.map(card => (
                       <motion.div
-                        initial={{ height: 0 }}
-                        animate={{ height: 'auto' }}
-                        exit={{ height: 0 }}
-                        className="border-t border-white/5 bg-black/20"
+                        layout
+                        key={card.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="glass-panel p-0 overflow-hidden"
                       >
-                        <div className="p-4 space-y-3 text-sm">
-                          <div>
-                            <span className="text-white/30 text-[10px] uppercase tracking-wider block mb-1">完整释义</span>
-                            <p className="text-white/80">{card.meaning}</p>
-                          </div>
-                          {(card.example || card.exampleMeaning) && (
-                            <div>
-                              <span className="text-white/30 text-[10px] uppercase tracking-wider block mb-1">例句</span>
-                              <p className="text-white/80 italic text-xs">"{card.example}"</p>
-                              <p className="text-white/50 text-xs">{card.exampleMeaning}</p>
+                        <div
+                          onClick={() => toggleExpand(card.id)}
+                          className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer"
+                        >
+                          <div className="flex-1 min-w-0 mr-4">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold text-white text-base truncate">{card.word}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/40">{card.partOfSpeech || 'n.'}</span>
+                              {card.isImportant && <Heart className="w-3 h-3 text-red-500 fill-current" />}
                             </div>
-                          )}
-                          <div className="flex justify-end pt-2">
+                            <p className="text-xs text-white/50 line-clamp-1">{card.meaning}</p>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            {activeTab === 'learned' && (
+                              <div className="flex flex-col items-end">
+                                <span className="text-[10px] text-white/30">下次复习</span>
+                                <span className="text-xs font-bold text-blue-300 font-mono bg-blue-500/10 px-2 py-0.5 rounded">
+                                  {getNextReviewTime(card.due)}
+                                </span>
+                              </div>
+                            )}
                             <button
-                              onClick={(e) => handleOpenPreview(e, card.id)}
-                              className="flex items-center gap-2 text-xs bg-blue-500/10 text-blue-300 px-3 py-1.5 rounded hover:bg-blue-500/20 transition-colors"
+                              onClick={(e) => handleDeleteCard(e, card.id)}
+                              className="p-2 text-white/10 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                             >
-                              <Eye className="w-3 h-3" /> 卡片视图
+                              <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              ))}
 
-              <div ref={observerTarget} className="p-4 text-center text-white/20 text-sm">
-                {visibleCards.length < filteredCards.length ? (
-                  <span className="animate-pulse">加载更多...</span>
+                        <AnimatePresence>
+                          {expandedCardId === card.id && (
+                            <motion.div
+                              initial={{ height: 0 }}
+                              animate={{ height: 'auto' }}
+                              exit={{ height: 0 }}
+                              className="border-t border-white/5 bg-black/20"
+                            >
+                              <div className="p-4 space-y-3 text-sm">
+                                <div>
+                                  <span className="text-white/30 text-[10px] uppercase tracking-wider block mb-1">完整释义</span>
+                                  <p className="text-white/80">{card.meaning}</p>
+                                </div>
+                                {(card.example || card.exampleMeaning) && (
+                                  <div>
+                                    <span className="text-white/30 text-[10px] uppercase tracking-wider block mb-1">例句</span>
+                                    <p className="text-white/80 italic text-xs">"{card.example}"</p>
+                                    <p className="text-white/50 text-xs">{card.exampleMeaning}</p>
+                                  </div>
+                                )}
+                                <div className="flex justify-end pt-2">
+                                  <button
+                                    onClick={(e) => handleOpenPreview(e, card.id)}
+                                    className="flex items-center gap-2 text-xs bg-blue-500/10 text-blue-300 px-3 py-1.5 rounded hover:bg-blue-500/20 transition-colors"
+                                  >
+                                    <Eye className="w-3 h-3" /> 卡片视图
+                                  </button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    ))}
+
+                    <div ref={observerTarget} className="p-4 text-center text-white/20 text-sm">
+                      {visibleCards.length < filteredCards.length ? (
+                        <span className="animate-pulse">加载更多...</span>
+                      ) : (
+                        <span>没有更多了</span>
+                      )}
+                    </div>
+                  </div>
                 ) : (
-                  <span>没有更多了</span>
+                  <div className="text-center py-20 text-white/20">
+                    <p>暂无单词</p>
+                  </div>
                 )}
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-20 text-white/20">
-              <p>暂无单词</p>
-            </div>
+              </AnimatePresence>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
