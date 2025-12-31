@@ -15,7 +15,11 @@ export function Layout({ children, className }: LayoutProps) {
         <div className="absolute top-[20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/20 blur-[120px]" />
         <div className="absolute bottom-[-10%] left-[20%] w-[40%] h-[40%] rounded-full bg-sky-500/20 blur-[120px]" />
       </div> */}
-      
+
+      {/* Global Frosted Glass Wallpaper Overlay */}
+      {/* Adds a strong blur to the body background image for all pages */}
+      <div className="fixed inset-0 -z-10 backdrop-blur-3xl bg-white/5 pointer-events-none" />
+
       <div className={cn("container mx-auto px-4 py-8 max-w-md md:max-w-2xl relative z-10", className)}>
         {children}
       </div>

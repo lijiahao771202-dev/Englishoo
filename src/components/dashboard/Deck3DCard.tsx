@@ -7,9 +7,10 @@ interface Deck3DCardProps {
     deck: Deck & { cardCount: number };
     onClick: () => void;
     onDelete: (e: React.MouseEvent) => void;
+    icon?: React.ElementType;
 }
 
-export function Deck3DCard({ deck, onClick, onDelete }: Deck3DCardProps) {
+export function Deck3DCard({ deck, onClick, onDelete, icon: Icon = Layers }: Deck3DCardProps) {
     const ref = useRef<HTMLDivElement>(null);
 
     const x = useMotionValue(0);
@@ -62,7 +63,7 @@ export function Deck3DCard({ deck, onClick, onDelete }: Deck3DCardProps) {
                 {/* Top Row: Icon & Delete */}
                 <div className="flex justify-between items-start">
                     <div className="p-3 rounded-xl bg-white/10 border border-white/10 backdrop-blur-md">
-                        <Layers className="w-5 h-5 text-white/80" />
+                        <Icon className="w-5 h-5 text-white/80" />
                     </div>
 
                     <button
@@ -73,9 +74,8 @@ export function Deck3DCard({ deck, onClick, onDelete }: Deck3DCardProps) {
                     </button>
                 </div>
 
-                {/* Bottom: Title & Count */}
                 <div className="mt-auto">
-                    <h3 className="text-3xl font-bold text-white/90 tracking-tight leading-tight mb-2">
+                    <h3 className="text-2xl font-bold text-white/90 tracking-tight leading-tight mb-2">
                         {deck.name}
                     </h3>
                     <div className="flex items-baseline gap-1.5">

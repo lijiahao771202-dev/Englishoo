@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Layers, Trash2, TestTube } from 'lucide-react';
-import { createDeck, getAllDecks, getAllCards, deleteDeck, SYSTEM_DECK_GUIDED, getDueCards, getNewCards, resetDatabase, getAllLogs } from '@/lib/data-source';
+import { Plus, Layers, GraduationCap, BookOpen, Sparkles } from 'lucide-react';
+import { createDeck, getAllDecks, getAllCards, deleteDeck, SYSTEM_DECK_GUIDED, getDueCards, getNewCards, getAllLogs } from '@/lib/data-source';
 import type { Deck } from '@/types';
 import { cn } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
-import { AnimatePresence } from 'framer-motion';
-import { seedTestDeck } from '@/lib/seed';
+import { AnimatePresence, motion } from 'framer-motion';
+// import { seedTestDeck } from '@/lib/seed'; // [UNUSED]
 import { DashboardHero } from './dashboard/DashboardHero';
 import { Deck3DCard } from './dashboard/Deck3DCard';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
@@ -21,8 +21,8 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
   const [decks, setDecks] = useState<(Deck & { cardCount: number })[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [seedProgress, setSeedProgress] = useState({ current: 0, total: 0, word: '' });
+  // const [isSeeding, setIsSeeding] = useState(false); // [UNUSED]
+  // const [seedProgress, setSeedProgress] = useState({ current: 0, total: 0, word: '' });
   const [isLoading, setIsLoading] = useState(true);
 
   // Global Stats
@@ -104,25 +104,26 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
     }
   };
 
-  const handleSeedData = async () => {
-    if (isSeeding) return;
-    if (!confirm('这将创建一个包含20个单词的测试卡包（混合新词和复习词），并计算它们的语义连接。确定要继续吗？')) return;
+  // [UNUSED] Debug function for seeding test data
+  // const handleSeedData = async () => {
+  //   if (isSeeding) return;
+  //   if (!confirm('这将创建一个包含20个单词的测试卡包（混合新词和复习词），并计算它们的语义连接。确定要继续吗？')) return;
 
-    setIsSeeding(true);
-    try {
-      await seedTestDeck((current: number, total: number, word: string) => {
-        setSeedProgress({ current, total, word });
-      });
-      alert('测试卡包生成完成！');
-      await loadData();
-    } catch (error) {
-      console.error("Seed failed:", error);
-      alert('生成失败，请查看控制台');
-    } finally {
-      setIsSeeding(false);
-      setSeedProgress({ current: 0, total: 0, word: '' });
-    }
-  };
+  //   setIsSeeding(true);
+  //   try {
+  //     await seedTestDeck((current: number, total: number, word: string) => {
+  //       setSeedProgress({ current, total, word });
+  //     });
+  //     alert('测试卡包生成完成！');
+  //     await loadData();
+  //   } catch (error) {
+  //     console.error("Seed failed:", error);
+  //     alert('生成失败，请查看控制台');
+  //   } finally {
+  //     setIsSeeding(false);
+  //     setSeedProgress({ current: 0, total: 0, word: '' });
+  //   }
+  // };
 
   const handleCreateDeck = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,14 +161,15 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
     }
   };
 
-  const handleResetData = async () => {
-    if (confirm("DANGER: 确定要清空所有数据吗？这包括所有单词和进度！")) {
-      if (confirm("再次确认：此操作不可撤销！")) {
-        await resetDatabase();
-        window.location.reload();
-      }
-    }
-  }
+  // [UNUSED] Debug function for resetting database
+  // const handleResetData = async () => {
+  //   if (confirm("DANGER: 确定要清空所有数据吗？这包括所有单词和进度！")) {
+  //     if (confirm("再次确认：此操作不可撤销！")) {
+  //       await resetDatabase();
+  //       window.location.reload();
+  //     }
+  //   }
+  // }
 
   // Loading State - Clean minimal loader
   if (isLoading) {
@@ -183,116 +185,121 @@ export function DeckList({ onSelectDeck, onOpenShadowing, onStartQuickSession }:
 
   return (
     <div
-      className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8"
+      className="w-full max-w-6xl mx-auto px-4 py-8 space-y-8"
     >
 
-      {/* 1. Hero / Command Center */}
+      {/* Unified Dashboard Hero containing Decks */}
       <DashboardHero
         stats={globalStats}
         onStartSession={() => onStartQuickSession?.('review')}
         onOpenShadowing={onOpenShadowing}
-      />
-
-      {/* 2. Decks Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-xl font-bold flex items-center gap-2 text-white/90">
-            <Layers className="w-5 h-5 text-blue-400" />
-            我的卡包
-          </h2>
-          <div className='flex gap-2 text-white/30 items-center'>
-            <SyncStatusIndicator />
-            <div className="w-px h-4 bg-white/10 mx-1" />
-            <button
-              onClick={handleResetData}
-              className="p-2 hover:text-red-400 hover:bg-white/5 rounded-full transition-colors"
-              title="重置数据"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleSeedData}
-              disabled={isSeeding}
-              className="p-2 hover:text-yellow-400 hover:bg-white/5 rounded-full transition-colors"
-              title="生成测试数据"
-            >
-              {isSeeding ? <span className="text-xs">{seedProgress.current}/{seedProgress.total}</span> : <TestTube className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-          {/* Create New Deck Card - Liquid Glass */}
-          <div
-            className={cn(
-              "group relative h-48 rounded-[2rem] border border-dashed border-white/20 hover:border-white/40 bg-white/5 hover:bg-white/10 backdrop-blur-2xl transition-all cursor-pointer flex flex-col items-center justify-center gap-3 overflow-hidden shadow-xl hover:shadow-2xl hover:-translate-y-1 duration-300",
-              isCreating && "border-solid bg-white/10 border-white/30 shadow-2xl"
-            )}
-          >
-            {/* Inner highlight */}
-            <div className="absolute inset-0 rounded-[2rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] pointer-events-none" />
-
-            {isCreating ? (
-              <form
-                onSubmit={handleCreateDeck}
-                className="relative z-10 w-full h-full p-6 flex flex-col justify-center items-center gap-5 animate-in fade-in zoom-in"
-              >
-                <input
-                  autoFocus
-                  type="text"
-                  value={newDeckName}
-                  onChange={(e) => setNewDeckName(e.target.value)}
-                  placeholder="卡包名称..."
-                  className="w-full bg-transparent text-center text-xl font-bold text-white placeholder:text-white/20 focus:outline-none border-b border-pink-200/20 pb-2 focus:border-pink-200/50 transition-colors"
-                />
-                <div className="flex gap-3 w-full">
-                  <button
-                    type="button"
-                    onClick={() => setIsCreating(false)}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white/40 hover:bg-white/5 hover:text-white transition-colors"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white text-sm font-bold shadow-lg shadow-pink-500/20 hover:scale-105 transition-transform"
-                  >
-                    创建
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div onClick={() => setIsCreating(true)} className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-3 group">
-                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-pink-200/30 group-hover:scale-110 group-hover:bg-rose-500/10 group-hover:text-pink-200 group-hover:border-rose-500/20 transition-all duration-300">
-                  <Plus className="w-8 h-8" />
-                </div>
-                <span className="text-sm font-semibold text-white/40 group-hover:text-pink-100/80 tracking-wide transition-colors">新建卡包</span>
-              </div>
-            )}
+      >
+        <div className="space-y-6">
+          <div className="flex items-center justify-between px-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-white/90">
+              <Layers className="w-5 h-5 text-pink-300" />
+              我的卡包
+            </h2>
+            <div className='flex gap-2 text-white/30 items-center'>
+              <SyncStatusIndicator />
+            </div>
           </div>
 
-          {/* Deck Cards */}
-          <AnimatePresence>
-            {decks.map(deck => (
-              <Deck3DCard
-                key={deck.id}
-                deck={{
-                  ...deck,
-                  name: {
-                    "vocabulary-book": "生词",
-                    "生词本": "生词",
-                    "四级核心词 (CET-4)": "四级",
-                    "六级核心词 (CET-6)": "六级",
-                  }[deck.name] || deck.name
-                }}
-                onClick={() => onSelectDeck(deck)}
-                onDelete={(e) => handleDeleteDeck(e, deck.id, deck.name)}
-              />
-            ))}
-          </AnimatePresence>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+            {/* Create New Deck Card - Liquid Glass */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              className={cn(
+                "group relative h-48 rounded-[2rem] border border-dashed border-white/20 hover:border-white/40 bg-white/5 hover:bg-white/10 backdrop-blur-2xl transition-all cursor-pointer flex flex-col items-center justify-center gap-3 overflow-hidden shadow-xl hover:shadow-2xl hover:-translate-y-1 duration-300",
+                isCreating && "border-solid bg-white/10 border-white/30 shadow-2xl"
+              )}
+            >
+              {/* Inner highlight */}
+              <div className="absolute inset-0 rounded-[2rem] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] pointer-events-none" />
+
+              {isCreating ? (
+                <form
+                  onSubmit={handleCreateDeck}
+                  className="relative z-10 w-full h-full p-6 flex flex-col justify-center items-center gap-5 animate-in fade-in zoom-in"
+                >
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newDeckName}
+                    onChange={(e) => setNewDeckName(e.target.value)}
+                    placeholder="卡包名称..."
+                    className="w-full bg-transparent text-center text-xl font-bold text-white placeholder:text-white/20 focus:outline-none border-b border-pink-200/20 pb-2 focus:border-pink-200/50 transition-colors"
+                  />
+                  <div className="flex gap-3 w-full">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreating(false)}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white/40 hover:bg-white/5 hover:text-white transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-400 hover:to-pink-400 text-white text-sm font-bold shadow-lg shadow-pink-500/20 hover:scale-105 transition-transform"
+                    >
+                      创建
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div onClick={() => setIsCreating(true)} className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-3 group">
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-pink-200/30 group-hover:scale-110 group-hover:bg-rose-500/10 group-hover:text-pink-200 group-hover:border-rose-500/20 transition-all duration-300">
+                    <Plus className="w-8 h-8" />
+                  </div>
+                  <span className="text-sm font-semibold text-white/40 group-hover:text-pink-100/80 tracking-wide transition-colors">新建卡包</span>
+                </div>
+              )}
+            </motion.div>
+
+            {/* Deck Cards */}
+            <AnimatePresence>
+              {decks.map(deck => {
+                const displayName = {
+                  "vocabulary-book": "Vocabulary",
+                  "生词本": "Vocabulary",
+                  "生词": "Vocabulary",
+                  "四级核心词 (CET-4)": "CET-4",
+                  "大学英语四级": "CET-4",
+                  "六级核心词 (CET-6)": "CET-6",
+                  "大学英语六级": "CET-6"
+                }[deck.name] || deck.name;
+
+                // Determine Icon
+                let Icon = Layers;
+                if (displayName.includes('CET')) Icon = GraduationCap;
+                if (displayName.includes('Vocabulary')) Icon = BookOpen;
+                if (displayName.includes('IELTS') || displayName.includes('TOEFL')) Icon = Sparkles;
+
+                return (
+                  <motion.div
+                    key={deck.id}
+                    variants={{
+                      hidden: { opacity: 0, y: 20 },
+                      visible: { opacity: 1, y: 0 }
+                    }}
+                  >
+                    <Deck3DCard
+                      deck={{ ...deck, name: displayName }}
+                      icon={Icon}
+                      onClick={() => onSelectDeck(deck)}
+                      onDelete={(e) => handleDeleteDeck(e, deck.id, deck.name)}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
+      </DashboardHero>
 
     </div>
   );

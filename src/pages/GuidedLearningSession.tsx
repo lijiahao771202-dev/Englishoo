@@ -667,6 +667,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     nodeId: card.id
                 }));
             setQueue(newQueue);
+            setIsQueueInitialized(true); // [FIX] Enable completion detection
             setMode('session');
 
             // Initial Graph for first card (Review Context)
@@ -2407,11 +2408,16 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
 
         // 1. Learn Mode (Flashcard)
         if (currentItem.type === 'learn') {
-            // [MODIFIED] Strict Mode Logic
-            // If sessionMode is 'review', treat all cards as review (Ghost Mode + FSRS)
-            // If sessionMode is 'new', treat all cards as new (Learning + Know/Forgot)
-            // If 'mixed', rely on card state.
-            const isReview = sessionMode === 'review' ? true : (sessionMode === 'new' ? false : currentItem.card.state === State.Review);
+            // [FIX] 严格区分学习模式和复习模式
+            // - sessionMode === 'review': 强制复习样式 (FSRS 四档评分)
+            // - sessionMode === 'new': 强制学习样式 (认识/忘了)
+            // - sessionMode === 'mixed': 根据卡片状态判断
+            //   - State.New 且 !isFamiliar: 学习模式
+            //   - 其他所有状态 (Learning/Relearning/Review): 复习模式
+            const isNewCard = currentItem.card.state === State.New && !currentItem.card.isFamiliar;
+            const isReview = sessionMode === 'review' ? true :
+                sessionMode === 'new' ? false :
+                    !isNewCard; // 只有 State.New 且未标记熟悉的才是学习模式
 
             const reviewPreviews = isReview ? getReviewPreviews(currentItem.card) : undefined;
 
@@ -2545,10 +2551,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         isTeacherMode && "z-50"
                     )}
                 >
-                    <div className={cn(
-                        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
-                        isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
-                    )}>
+                    <motion.div
+                        animate={
+                            choiceResult === 'incorrect' ? { x: [0, -10, 10, -10, 10, 0] } :
+                                choiceResult === 'correct' ? { scale: [1, 1.02, 1], boxShadow: "0 0 30px rgba(74, 222, 128, 0.4)" } :
+                                    {}
+                        }
+                        transition={{ duration: 0.4 }}
+                        className={cn(
+                            "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
+                            isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                        )}>
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2615,7 +2628,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 </motion.div>
             );
         }
@@ -2643,10 +2656,17 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         isTeacherMode && "z-50"
                     )}
                 >
-                    <div className={cn(
-                        "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
-                        isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
-                    )}>
+                    <motion.div
+                        animate={
+                            testResult === 'incorrect' ? { x: [0, -10, 10, -10, 10, 0] } :
+                                testResult === 'correct' ? { scale: [1, 1.02, 1], boxShadow: "0 0 30px rgba(74, 222, 128, 0.4)" } :
+                                    {}
+                        }
+                        transition={{ duration: 0.4 }}
+                        className={cn(
+                            "relative w-full h-full flex flex-col p-6 md:p-8 overflow-hidden rounded-3xl border border-white/20 bg-white/10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] transition-all duration-500 hover:border-white/30",
+                            isTeacherMode && "scale-105 border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
+                        )}>
                         {/* Ambient Light Effects */}
                         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/20 rounded-full blur-[100px] pointer-events-none" />
                         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/20 rounded-full blur-[100px] pointer-events-none" />
@@ -2786,7 +2806,7 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 </motion.div>
             );
         }
@@ -2818,8 +2838,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             } : {}}
         >
             {/* 高斯模糊背景层 - 学习/复习时激活 */}
+            {/* 高斯模糊背景层 - 学习/复习时激活 (Frosted Glass Wallpaper) */}
             {(phase === 'word-learning' || phase === 'connection-learning') && (
-                <div className="absolute inset-0 backdrop-blur-md bg-black/30 z-0 transition-all duration-500" />
+                <div className="absolute inset-0 backdrop-blur-3xl bg-white/10 z-0 transition-all duration-1000" />
             )}
 
             {/* [Feature I] Spotlight Overlay 聚光灯遮罩 */}
@@ -3050,53 +3071,31 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                     dragMomentum={false}
                                     whileDrag={{ cursor: 'grabbing', scale: 1.02 }}
                                     key={currentItem?.card.id || 'empty-word'}
-                                    // iOS 风格非线性动画：入场 (从右飞入 + 放大 + 去糊)
+                                    // iOS Style Stack Flow Animation: Floating Up from Bottom
                                     initial={{
-                                        x: 80,
                                         opacity: 0,
-                                        scale: 0.92,
-                                        filter: "blur(8px)",
-                                        rotateY: 8
+                                        scale: 0.96,
+                                        y: 40, // Enter from bottom
+                                        filter: "blur(4px)",
                                     }}
                                     animate={{
-                                        x: 0,
                                         opacity: 1,
                                         scale: 1,
+                                        y: 0,
                                         filter: "blur(0px)",
-                                        rotateY: 0
                                     }}
-                                    // iOS 风格非线性动画：出场 (向左飘走 + 缩小 + 微糊)
+                                    // Exit: Float Upwards + Fade Out (metaphor: "Done/Ascend")
                                     exit={{
-                                        x: -80,
                                         opacity: 0,
-                                        scale: 0.95,
+                                        scale: 0.96,
+                                        y: -40, // Exit to top
                                         filter: "blur(4px)",
-                                        rotateY: -4
                                     }}
                                     transition={{
-                                        // 主体使用柔和 spring (iOS 标准)
                                         type: "spring",
-                                        stiffness: 120,  // 更柔和的弹簧
-                                        damping: 18,     // 适度阻尼，有惯性但不弹跳
-                                        mass: 0.8,       // 略重，更有质感
-                                        // 分层编排：blur 使用 iOS Slide 曲线
-                                        filter: {
-                                            type: "tween",
-                                            duration: 0.45,
-                                            ease: [0.32, 0.72, 0, 1]  // iOS Slide 曲线
-                                        },
-                                        // opacity 使用 Spring-like 曲线
-                                        opacity: {
-                                            type: "tween",
-                                            duration: 0.35,
-                                            ease: [0.25, 1, 0.5, 1]  // Spring-like 曲线
-                                        },
-                                        // scale 单独配置更弹性的 spring
-                                        scale: {
-                                            type: "spring",
-                                            stiffness: 150,
-                                            damping: 20
-                                        }
+                                        stiffness: 100,
+                                        damping: 20,
+                                        mass: 0.8
                                     }}
                                     className="w-full"
                                 >
@@ -3166,8 +3165,12 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                                                 />
                                             </div>
 
-                                            <h2 className="text-3xl font-bold text-white mb-2">关卡完成！</h2>
-                                            <p className="text-white/60">思维网络已建立</p>
+                                            <h2 className="text-3xl font-bold text-white mb-2">
+                                                {sessionMode === 'review' ? '复习完成！' : '关卡完成！'}
+                                            </h2>
+                                            <p className="text-white/60">
+                                                {sessionMode === 'review' ? '记忆已巩固' : '思维网络已建立'}
+                                            </p>
                                         </div>
 
                                         {/* Stats Grid */}
