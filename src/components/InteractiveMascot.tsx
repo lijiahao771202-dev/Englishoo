@@ -605,60 +605,96 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
             style={{ width: size, height: size }}
             onClick={onPoke}
         >
-            {/* [Feature I] 老师讲解气泡 (优先显示) */}
-            <AnimatePresence>
+            {/* [Feature I] 老师讲解面板 - 屏幕右侧固定定位 */}
+            <AnimatePresence mode="wait">
                 {explanation && (
                     <motion.div
                         key="teacher-explanation"
-                        className="absolute z-[60] pointer-events-auto" // [Interactive] Allow pointer events
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                        // 使用固定定位，位于屏幕右侧
+                        className="fixed z-[100] pointer-events-auto"
                         style={{
-                            width: boxSize.width,
-                            height: boxSize.height,
-                            top: boxOffset.y, // Apply Offset Y
-                            left: boxOffset.x, // Apply Offset X
+                            right: 24,
+                            top: '50%',
+                            translateY: '-50%',
+                            width: 380,
+                            maxHeight: '70vh',
                         }}
-                        onPointerDown={(e) => e.stopPropagation()} // Stop propagation to prevent mascot drag
+                        // 优雅的右滑入场动画
+                        initial={{ opacity: 0, x: 60, scale: 0.96 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        // 柔和的右滑离场动画
+                        exit={{ opacity: 0, x: 40, scale: 0.98 }}
+                        transition={{
+                            duration: 0.3,
+                            ease: [0.4, 0, 0.2, 1] // Apple 标准缓动曲线
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                     >
                         <div
-                            className="w-full h-full backdrop-blur-xl rounded-2xl shadow-xl text-left relative bg-white/90 border border-yellow-400/30 flex flex-col"
+                            className="w-full h-full backdrop-blur-2xl rounded-3xl shadow-2xl text-left relative 
+                                       bg-white/95 border border-yellow-400/20 flex flex-col overflow-hidden
+                                       shadow-black/10"
                         >
-                            {/* Drag Handle (Header Area) */}
-                            <div
-                                className="absolute -top-3 left-4 right-4 h-6 z-10 cursor-grab active:cursor-grabbing flex justify-start pointer-events-auto"
-                                onPointerDown={(e) => {
-                                    e.stopPropagation();
-                                    isDraggingBubbleRef.current = true;
-                                    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
-                                    initialBoxRef.current = { ...boxSize, ...boxOffset };
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onTouchStart={(e) => e.stopPropagation()}
-                            >
-                                <div className="text-xs font-bold px-2 py-1 rounded-md shadow-sm flex items-center gap-1 bg-yellow-400 text-yellow-900 select-none">
-                                    <span>👨‍🏫</span>
-                                    <span>Teacher's Note</span>
+                            {/* 顶部标题栏 */}
+                            <div className="flex items-center justify-between px-5 py-4 border-b border-yellow-400/10 bg-gradient-to-r from-yellow-50/80 to-orange-50/50">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-orange-400 flex items-center justify-center shadow-md">
+                                        <span className="text-sm">👨‍🏫</span>
+                                    </div>
+                                    <div>
+                                        <div className="text-sm font-bold text-yellow-900">AI 老师讲解</div>
+                                        <div className="text-[10px] text-yellow-700/60">Teacher's Note</div>
+                                    </div>
                                 </div>
+                                {/* 关闭按钮 */}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        mascotEventBus.say('', 'idle', 0); // 清除讲解
+                                    }}
+                                    className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center 
+                                               transition-colors active:scale-95"
+                                >
+                                    <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-4 pt-6 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 break-words leading-relaxed prose-strong:text-yellow-600 prose-blockquote:not-italic prose-blockquote:font-normal prose-blockquote:text-gray-700 prose-blockquote:bg-purple-100/50 prose-blockquote:border-l-4 prose-blockquote:border-purple-400 prose-blockquote:py-2 prose-blockquote:px-3 prose-blockquote:rounded-r-lg prose-blockquote:my-2 prose-blockquote:shadow-sm">
+                            {/* 内容区域 */}
+                            <div className="flex-1 overflow-y-auto p-5 prose prose-sm max-w-none 
+                                            prose-p:my-2 prose-ul:my-2 prose-li:my-1
+                                            prose-headings:text-yellow-800 prose-headings:font-bold
+                                            prose-h2:text-base prose-h2:mt-0 prose-h2:mb-3
+                                            prose-h3:text-sm prose-h3:mt-4 prose-h3:mb-2
+                                            prose-strong:text-yellow-700
+                                            prose-blockquote:not-italic prose-blockquote:font-normal 
+                                            prose-blockquote:text-gray-700 prose-blockquote:bg-gradient-to-r 
+                                            prose-blockquote:from-purple-50 prose-blockquote:to-pink-50
+                                            prose-blockquote:border-l-4 prose-blockquote:border-purple-400 
+                                            prose-blockquote:py-3 prose-blockquote:px-4 prose-blockquote:rounded-r-xl 
+                                            prose-blockquote:my-3 prose-blockquote:shadow-sm
+                                            break-words leading-relaxed text-gray-700"
+                                style={{ maxHeight: 'calc(70vh - 140px)' }}
+                            >
                                 <ReactMarkdown>{explanation}</ReactMarkdown>
+                            </div>
 
-                                {isTeacher && (
-                                    <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-yellow-400/20 pointer-events-auto">
+                            {/* 底部操作按钮 */}
+                            {isTeacher && (
+                                <div className="px-5 py-4 border-t border-yellow-400/10 bg-gradient-to-r from-gray-50/80 to-yellow-50/30">
+                                    <div className="flex flex-wrap gap-2">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const target = currentWord || explanation?.match(/###\s+(.+?)(\n|$)/)?.[1] || explanation?.split('\n')[0].replace(/#+\s*/, '').trim();
-                                                console.log('[Interaction] Click Simplify, word:', target);
                                                 if (target) mascotEventBus.refineExplanation(target, 'simplification');
                                             }}
-                                            className="px-2 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs rounded-md transition-colors flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
+                                            className="px-3 py-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs font-medium
+                                                       rounded-xl transition-all flex items-center gap-1.5 shadow-sm 
+                                                       hover:shadow active:scale-95"
                                         >
                                             <span>🍼</span> 太难了
                                         </button>
@@ -666,10 +702,11 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const target = currentWord || explanation?.match(/###\s+(.+?)(\n|$)/)?.[1] || explanation?.split('\n')[0].replace(/#+\s*/, '').trim();
-                                                console.log('[Interaction] Click Example, word:', target);
                                                 if (target) mascotEventBus.refineExplanation(target, 'example');
                                             }}
-                                            className="px-2 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-xs rounded-md transition-colors flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
+                                            className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs font-medium
+                                                       rounded-xl transition-all flex items-center gap-1.5 shadow-sm 
+                                                       hover:shadow active:scale-95"
                                         >
                                             <span>💡</span> 举个栗子
                                         </button>
@@ -677,52 +714,17 @@ export const InteractiveMascot = React.memo(function InteractiveMascot({
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const target = currentWord || explanation?.match(/###\s+(.+?)(\n|$)/)?.[1] || explanation?.split('\n')[0].replace(/#+\s*/, '').trim();
-                                                console.log('[Interaction] Click Mnemonic, word:', target);
                                                 if (target) mascotEventBus.refineExplanation(target, 'mnemonic');
                                             }}
-                                            className="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 text-xs rounded-md transition-colors flex items-center gap-1 shadow-sm cursor-pointer active:scale-95"
+                                            className="px-3 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 text-xs font-medium
+                                                       rounded-xl transition-all flex items-center gap-1.5 shadow-sm 
+                                                       hover:shadow active:scale-95"
                                         >
-                                            <span>🧠</span> 更好的助记
+                                            <span>🧠</span> 换个口诀
                                         </button>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Resize Handle */}
-                            <div
-                                className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-20 flex items-center justify-center opacity-50 hover:opacity-100"
-                                onPointerDown={(e) => {
-                                    e.stopPropagation();
-                                    isResizingRef.current = true;
-                                    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
-                                    initialBoxRef.current = { ...boxSize, ...boxOffset };
-                                }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onTouchStart={(e) => e.stopPropagation()}
-                            >
-                                <div className="w-2 h-2 bg-yellow-400/50 rounded-full" />
-                            </div>
-
-                            {/* [Feature I] Integrated Mascot in Blackboard (Top Right) */}
-                            <div className="absolute top-2 right-2 w-10 h-10 z-10 pointer-events-none opacity-90">
-                                {variant === 'sphere' ? (
-                                    <SphereVisuals
-                                        reaction={internalReaction}
-                                        size={40}
-                                        eyePosition={eyePosition}
-                                    />
-                                ) : (
-                                    <MascotVisuals
-                                        currentSkin={currentSkin}
-                                        internalReaction={internalReaction}
-                                        isDragging={false}
-                                        isTeacher={isTeacher}
-                                        eyePosition={eyePosition}
-                                        starPositions={starPositions}
-                                        size={40}
-                                    />
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     </motion.div>
                 )}
