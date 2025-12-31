@@ -1158,6 +1158,7 @@ function AppContent() {
                             <Suspense fallback={<LoadingSpinner />}>
                                 <ShadowingSession
                                     onBack={() => setView('decks')}
+                                    apiKey={apiKey}
                                 />
                             </Suspense>
                         </motion.div>
