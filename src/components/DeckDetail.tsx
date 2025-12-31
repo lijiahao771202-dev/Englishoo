@@ -332,36 +332,54 @@ export function DeckDetail({
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 pb-20">
-      {/* Header (Always visible if deck exists) */}
+      {/* Header - 从上方滑入 */}
       <motion.div
         className="flex items-center gap-4"
-        initial={false}
+        initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
       >
-        <button
+        <motion.button
           onClick={onBack}
           className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
         >
           <ArrowLeft className="w-6 h-6" />
-        </button>
-        <div className="flex-1">
+        </motion.button>
+        <motion.div
+          className="flex-1"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+        >
           <h1 className="text-2xl font-bold text-white truncate">{deck!.name || '未命名卡包'}</h1>
           <p className="text-white/50 text-xs">
             {stats.total > 0 ? `${stats.total} 单词` : (deck!.description || "加载中...")}
           </p>
-        </div>
-        <button
+        </motion.div>
+        <motion.button
           onClick={handleDeleteDeck}
           className="p-2 rounded-full hover:bg-red-500/20 text-red-400/50 hover:text-red-400 transition-colors"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
         >
           <Trash2 className="w-5 h-5" />
-        </button>
+        </motion.button>
       </motion.div>
 
-      {/* 1. HERO STUDY SECTION V2 (Immersive Dashboard) */}
+      {/* 1. HERO STUDY SECTION V2 - 从下方弹入 */}
       <motion.div
-        initial={false}
-        animate={{ opacity: 1, scale: 1 }}
+        initial={{ opacity: 0, y: 40, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{
+          duration: 0.6,
+          delay: 0.15,
+          ease: [0.16, 1, 0.3, 1] // Apple 的 spring 缓动曲线
+        }}
         className="glass-panel p-0 relative overflow-hidden group min-h-[300px] flex flex-col"
       >
         {/* Animated Mesh Gradient Background */}
@@ -371,47 +389,81 @@ export function DeckDetail({
           <div className="absolute bottom-[-20%] left-[20%] w-[80%] h-[80%] bg-[radial-gradient(circle_at_50%_50%,rgba(236,72,153,0.3),transparent_50%)] animate-[bounce_10s_infinite]" />
         </div>
 
-        {/* Content Container */}
+        {/* Content Container - 内容顺序渐现 */}
         <div className="relative z-10 flex-1 flex flex-col p-8">
           {/* Total Progress Header */}
-          <div className="flex items-start justify-between mb-8">
+          <motion.div
+            className="flex items-start justify-between mb-8"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+          >
             <div>
               <div className="text-white/40 text-xs font-medium tracking-wider uppercase mb-1">总进度</div>
-              <div className="flex items-baseline gap-2">
+              <motion.div
+                className="flex items-baseline gap-2"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.4, duration: 0.4, type: "spring" }}
+              >
                 <span className="text-3xl font-light text-white font-outfit">
                   {stats.total - stats.new}
                 </span>
                 <span className="text-white/30 text-sm">/ {stats.total}</span>
-              </div>
+              </motion.div>
             </div>
-            {/* Circular Progress Ring */}
-            <div className="relative w-16 h-16">
+            {/* Circular Progress Ring - 环形进度条动画 */}
+            <motion.div
+              className="relative w-16 h-16"
+              initial={{ opacity: 0, rotate: -90, scale: 0.8 }}
+              animate={{ opacity: 1, rotate: 0, scale: 1 }}
+              transition={{ delay: 0.35, duration: 0.6, type: "spring" }}
+            >
               <svg className="w-full h-full -rotate-90">
                 <circle cx="32" cy="32" r="28" className="stroke-white/5 fill-none" strokeWidth="6" />
-                <circle
+                <motion.circle
                   cx="32" cy="32" r="28"
-                  className="stroke-purple-500 fill-none transition-all duration-1000 ease-out"
+                  className="stroke-purple-500 fill-none"
                   strokeWidth="6"
                   strokeDasharray={175}
-                  strokeDashoffset={175 - (stats.total > 0 ? ((stats.total - stats.new) / stats.total) * 175 : 0)}
+                  initial={{ strokeDashoffset: 175 }}
+                  animate={{ strokeDashoffset: 175 - (stats.total > 0 ? ((stats.total - stats.new) / stats.total) * 175 : 0) }}
+                  transition={{ delay: 0.5, duration: 1, ease: "easeOut" }}
                   strokeLinecap="round"
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white/50">
                 {stats.total > 0 ? Math.round(((stats.total - stats.new) / stats.total) * 100) : 0}%
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
 
-          {/* Main Dashboard Stats & Actions */}
-          <div className="flex-1 grid grid-cols-2 gap-8 items-center border-t border-white/5 pt-8">
+          {/* Main Dashboard Stats & Actions - 两列依次入场 */}
+          <motion.div
+            className="flex-1 grid grid-cols-2 gap-8 items-center border-t border-white/5 pt-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.45, duration: 0.4 }}
+          >
             {/* Review Column */}
-            <div className="flex flex-col gap-4">
+            <motion.div
+              className="flex flex-col gap-4"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.5, duration: 0.4 }}
+            >
               <div
                 className="cursor-pointer group/stat transition-opacity hover:opacity-80"
                 onClick={onOpenReviewDashboard}
               >
-                <div className="text-4xl font-light text-white font-outfit mb-1">{stats.due}</div>
+                <motion.div
+                  className="text-4xl font-light text-white font-outfit mb-1"
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.55, duration: 0.3, type: "spring", stiffness: 300 }}
+                >
+                  {stats.due}
+                </motion.div>
                 <div className="text-xs text-blue-300 font-medium flex items-center gap-1">
                   待复习
                 </div>
@@ -426,13 +478,25 @@ export function DeckDetail({
                 <RefreshCw className={cn("w-4 h-4", stats.due > 0 && "group-hover/btn:rotate-180 transition-transform duration-500")} />
                 开始复习
               </motion.button>
-            </div>
+            </motion.div>
 
             {/* Learn Column */}
-            <div className="flex flex-col gap-4 relative">
-              <div className="absolute left-[-1rem] top-0 bottom-0 w-px bg-white/5" /> {/* Vertical Divider */}
+            <motion.div
+              className="flex flex-col gap-4 relative"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.55, duration: 0.4 }}
+            >
+              <div className="absolute left-[-1rem] top-0 bottom-0 w-px bg-white/5" />
               <div>
-                <div className="text-4xl font-light text-white/90 font-outfit mb-1">{stats.new}</div>
+                <motion.div
+                  className="text-4xl font-light text-white/90 font-outfit mb-1"
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.6, duration: 0.3, type: "spring", stiffness: 300 }}
+                >
+                  {stats.new}
+                </motion.div>
                 <div className="text-xs text-emerald-300 font-medium">新词</div>
               </div>
               <motion.button
@@ -445,13 +509,18 @@ export function DeckDetail({
                 <Sparkles className="w-4 h-4 group-hover/btn:scale-110 transition-transform" />
                 学习新词
               </motion.button>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       </motion.div>
 
-      {/* 2. COMMAND BAR (Horizontal Scrollable Tools) */}
-      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 mask-linear-fade">
+      {/* 2. COMMAND BAR - 工具按钮依次入场 */}
+      <motion.div
+        className="flex gap-3 overflow-x-auto no-scrollbar pb-2 mask-linear-fade"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.65, duration: 0.4 }}
+      >
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -524,7 +593,7 @@ export function DeckDetail({
             <div className="text-sm text-white font-medium">阅读练习</div>
           </div>
         </motion.button>
-      </div>
+      </motion.div>
 
       {/* FLOATING ACTION BUTTON (Add Word) */}
       <motion.button
@@ -730,7 +799,7 @@ export function DeckDetail({
           />
         )}
       </AnimatePresence>
-    </div>
+    </div >
   );
 }
 
