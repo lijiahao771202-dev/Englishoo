@@ -1,6 +1,6 @@
 /**
  * @component FloatingAIChat (悬浮AI聊天助手)
- * @description 全局可用的AI助手悬浮窗，支持上下文感知模式切换、Tab快捷键呼出、拖拽移动、流式输出、Markdown渲染
+ * @description 全局可用的AI助手悬浮窗，支持上下文感知模式切换、` 反引号键呼出、拖拽移动、流式输出、Markdown渲染
  * @context 全局可用，根据当前页面自动切换AI模式
  * @author Trae-Architect
  */
@@ -345,9 +345,9 @@ export function FloatingAIChat({
         }
     }, [isOpen]);
 
-    // 自定义快捷键切换 (默认 Tab，可通过 localStorage 配置)
+    // 自定义快捷键切换 (默认 ` 反引号键，可通过 localStorage 配置)
     useEffect(() => {
-        const savedHotkey = localStorage.getItem('ai_chat_hotkey') || 'Tab';
+        const savedHotkey = localStorage.getItem('ai_chat_hotkey') || '`';
 
         const handleKeyDown = (e: KeyboardEvent) => {
             // 检查是否按下了配置的快捷键
@@ -602,10 +602,11 @@ export function FloatingAIChat({
                 // [Personalization] 构建个性化 Prompt
                 const userProfile = profileRef.current;
 
-                // [Killer Feature] 知识关联 Context
+                // [Killer Feature] 知识关联 Context - 增强版：优先对比已学单词
                 const knownWords = knownWordsRef.current;
+                // 构建更详细的已知词汇上下文，强调必须关联对比
                 const knowledgeContext = knownWords.length > 0
-                    ? `\n\n[已知词库] 用户已掌握：${knownWords.slice(0, 15).join(', ')}${knownWords.length > 15 ? '...' : ''}。如有相关词，请在讲解中对比引用。`
+                    ? `\n\n[重要：知识关联] 用户已掌握的词汇：【${knownWords.slice(0, 30).join('、')}】${knownWords.length > 30 ? '等' + knownWords.length + '个词' : ''}。\n**你必须在讲解中找出至少1-2个已学词汇进行对比**，比如：\n- 如果是同义词/近义词，对比用法差异\n- 如果是反义词，对比理解记忆\n- 如果有词根词缀关系，展示词族联想\n- 如果发音/拼写相似易混淆，特别强调区分`
                     : "";
 
                 let personaContext = "";
@@ -623,11 +624,13 @@ export function FloatingAIChat({
 /音标/ （谐音助记）
 
 ### 📖 核心含义
-- **含义1**：解释（关联词）
+- **含义1**：解释
 - **含义2**：解释（如有多义）
 
-### 🔗 关联对比
-- 同义/反义/相关词的对比
+### 🔗 关联对比（重要！）
+从用户已学词汇中找出关联词进行对比：
+- **已学词 vs 本词**：对比分析（用法/含义/易混淆点）
+- 如果没有直接关联的已学词，展示同义词/反义词对比
 
 ### 💡 助记口诀
 > "创意口诀，帮助记忆"
@@ -636,9 +639,10 @@ export function FloatingAIChat({
 **要求：**
 1. 每个板块用 ### 二级标题分隔
 2. 含义用列表格式，加粗关键词
-3. 口诀用引用块 > 包裹
-4. 总字数控制在 200 字以内
-5. 风格生动有趣`;
+3. 🔗 关联对比 板块**必须**引用用户已学词汇进行对比（如果有相关的话）
+4. 口诀用引用块 > 包裹
+5. 总字数控制在 250 字以内
+6. 风格生动有趣`;
 
                 // [Feature I] Handle Refinements
                 if (ctx.refineType === 'simplification') {
@@ -919,7 +923,7 @@ export function FloatingAIChat({
                 }}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
-                title="AI 助手 (Tab)"
+                title="AI 助手 (` 键)"
             >
                 <AnimatePresence mode="wait">
                     {isOpen ? (
@@ -997,7 +1001,7 @@ export function FloatingAIChat({
                                     {currentWord ? `正在学习: ${currentWord} ` : modeConfig.description}
                                 </div>
                             </div>
-                            <div className="text-white/30 text-xs">Tab 切换</div>
+                            <div className="text-white/30 text-xs">` 键切换</div>
                         </div>
 
                         {/* 消息区域 */}
