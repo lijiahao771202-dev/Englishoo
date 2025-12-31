@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Mic, Play, Square, Wand2, Eye, EyeOff, CheckCircle2, RotateCcw, Award, ChevronRight } from 'lucide-react';
-// import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Mic, Play, Square, Wand2, Eye, EyeOff, RotateCcw, Award, ChevronRight } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { useAuth } from '@/contexts/AuthContext';
 import { generateShadowingStory, type ShadowingStory } from '@/lib/deepseek';
 import { speak, stopAll } from '@/lib/tts';
 import { getAllCards } from '@/lib/db';
@@ -26,9 +24,6 @@ interface ShadowingSessionProps {
 }
 
 export default function ShadowingSession({ onBack, apiKey: propApiKey }: ShadowingSessionProps) {
-  // const navigate = useNavigate();
-  const { user } = useAuth();
-
   // State
   const [phase, setPhase] = useState<Phase>('setup');
   const [practiceMode, setPracticeMode] = useState<PracticeMode>('words');
@@ -42,7 +37,6 @@ export default function ShadowingSession({ onBack, apiKey: propApiKey }: Shadowi
   const [isBlindMode, setIsBlindMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [userTranscript, setUserTranscript] = useState('');
-  const [lastScore, setLastScore] = useState<number | null>(null);
   const [segmentScores, setSegmentScores] = useState<number[]>([]);
   const [isPlayingAll, setIsPlayingAll] = useState(false); // UI state for play all
   const [showAllWords, setShowAllWords] = useState(false); // Folding state for setup
@@ -51,9 +45,7 @@ export default function ShadowingSession({ onBack, apiKey: propApiKey }: Shadowi
   const recognitionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isPlayingRef = useRef(false); // Ref to track play sequence availability
-
-  // Stats
-  const [totalScore, setTotalScore] = useState(0);
+  const transcriptRef = useRef<string>(''); // 用于保存录音期间的完整转录文本
 
   // --- Initialization ---
 
@@ -241,13 +233,11 @@ export default function ShadowingSession({ onBack, apiKey: propApiKey }: Shadowi
     if (!story) return;
     const targetText = story.sentences[currentIndex].text;
     const score = calculateSimilarity(targetText, transcript);
-    setLastScore(score);
 
     // Update segment scores
     const newScores = [...segmentScores];
     newScores[currentIndex] = score;
     setSegmentScores(newScores);
-    setTotalScore(prev => prev + score);
 
     // Auto-advance if score is good?
     // Maybe not auto, let user decide. But provide visual feedback.
@@ -268,17 +258,8 @@ export default function ShadowingSession({ onBack, apiKey: propApiKey }: Shadowi
     if (currentIndex < story.sentences.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setUserTranscript('');
-      setLastScore(null);
     } else {
       setPhase('summary');
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
-      setUserTranscript('');
-      setLastScore(null);
     }
   };
 
@@ -428,7 +409,6 @@ export default function ShadowingSession({ onBack, apiKey: propApiKey }: Shadowi
 
   const renderPractice = () => {
     if (!story) return null;
-    const currentSent = story.sentences[currentIndex];
 
     return (
       <div className="flex flex-col h-screen bg-gray-50">
