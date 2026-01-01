@@ -5,8 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface SessionReportProps {
     isOpen: boolean;
     type: 'learn' | 'review';
+    title?: string;
     startTime: number; // timestamp
     cardsCount: number;
+    totalCount?: number; // [NEW] Total cards in group/deck for overall progress
     // Optional stats for review mode
     ratings?: {
         again: number;
@@ -21,8 +23,10 @@ interface SessionReportProps {
 export function SessionReport({
     isOpen,
     type,
+    title,
     startTime,
     cardsCount,
+    totalCount,
     ratings,
     onClose,
     onExit
@@ -93,10 +97,12 @@ export function SessionReport({
                             </div>
 
                             <h2 className="text-2xl font-bold text-white mb-2">
-                                {type === 'learn' ? '新词学习完成！' : '复习计划达成！'}
+                                {title || (type === 'learn' ? '新词学习完成！' : '复习计划达成！')}
                             </h2>
                             <p className="text-white/50 text-sm mb-8">
-                                积跬步，至千里。保持这个节奏！
+                                {totalCount && totalCount > cardsCount
+                                    ? `本组进度: ${cardsCount} / ${totalCount} 已完成`
+                                    : '积跬步，至千里。保持这个节奏！'}
                             </p>
 
                             {/* Stats Grid */}
@@ -108,8 +114,12 @@ export function SessionReport({
                                 </div>
                                 <div className="bg-white/5 rounded-2xl p-3 flex flex-col items-center gap-1 border border-white/5">
                                     <Target className="w-4 h-4 text-green-400 mb-1" />
-                                    <span className="text-lg font-bold text-white">{cardsCount}</span>
-                                    <span className="text-[10px] text-white/40">单词数</span>
+                                    <span className="text-lg font-bold text-white">
+                                        {totalCount ? `${cardsCount}/${totalCount}` : cardsCount}
+                                    </span>
+                                    <span className="text-[10px] text-white/40">
+                                        {totalCount ? '完成度' : '单词数'}
+                                    </span>
                                 </div>
                                 <div className="bg-white/5 rounded-2xl p-3 flex flex-col items-center gap-1 border border-white/5">
                                     <Zap className="w-4 h-4 text-yellow-400 mb-1" />

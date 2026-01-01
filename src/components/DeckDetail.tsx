@@ -333,15 +333,16 @@ export function DeckDetail({
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8 pb-20">
       {/* Header - 从上方滑入 */}
+      {/* Header - 从上方滑入 */}
       <motion.div
-        className="flex items-center gap-4"
+        className="flex items-center gap-4 drag-region"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
       >
         <motion.button
           onClick={onBack}
-          className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors no-drag"
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
         >
@@ -360,7 +361,7 @@ export function DeckDetail({
         </motion.div>
         <motion.button
           onClick={handleDeleteDeck}
-          className="p-2 rounded-full hover:bg-red-500/20 text-red-400/50 hover:text-red-400 transition-colors"
+          className="p-2 rounded-full hover:bg-red-500/20 text-red-400/50 hover:text-red-400 transition-colors no-drag"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}

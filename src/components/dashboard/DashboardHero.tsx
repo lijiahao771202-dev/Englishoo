@@ -63,7 +63,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing, children
                 <div className="relative z-10 p-6 lg:p-8">
 
                     {/* Top Row: Date Badge + Actions */}
-                    <div className="flex justify-between items-start mb-6">
+                    <div className="flex justify-between items-start mb-6 drag-region">
                         <motion.div
                             initial={false}
                             animate={{ opacity: 1, x: 0 }}
@@ -75,7 +75,7 @@ export function DashboardHero({ stats, onStartSession, onOpenShadowing, children
                         <motion.div
                             initial={false}
                             animate={{ opacity: 1, x: 0 }}
-                            className="flex gap-2"
+                            className="flex gap-2 no-drag"
                         >
                             <button
                                 onClick={onStartSession}

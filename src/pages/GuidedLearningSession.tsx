@@ -735,14 +735,14 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
             if (!sortedItems.some(si => si.id === item.id)) sortedItems.push(item);
         });
 
-        // [FIX 2024-12-29] 学习队列只包含 State.New 的卡片
-        // - Learning/Relearning 是 FSRS 短期复习状态，应在复习模式处理
-        // - 避免已学过的卡片混入学习队列
+        // [MODIFIED] Include New, Learning, and Relearning states in the learning queue.
+        // During group learning, the user expects to finish the entire group.
+        // Skipping Learning/Relearning cards makes the group progress feel incomplete.
         const unlearnedItems = sortedItems.filter(c =>
-            c.state === State.New && !c.isFamiliar
+            (c.state === State.New || c.state === State.Learning || c.state === State.Relearning) && !c.isFamiliar
         );
 
-        console.log(`[loadGroupQueue] 组 ${groupIndex}: ${unlearnedItems.length}/${sortedItems.length} 张新词（已排除 Learning/Relearning）`);
+        console.log(`[loadGroupQueue] 组 ${groupIndex}: ${unlearnedItems.length}/${sortedItems.length} 张待学习卡片 (包含 New/Learning/Relearning)`);
 
         // 如果组内所有卡片都已学完，队列为空，将触发组完成逻辑
         const newQueue: SessionItem[] = unlearnedItems.map(card => ({
@@ -3410,9 +3410,19 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                     <div className="absolute inset-0 z-50 bg-slate-950 animate-in fade-in duration-300">
                         <SessionReport
                             isOpen={showGroupCompletion}
-                            type="learn" // Or 'group' if we supported it
-                            startTime={sessionStats.startTime} // Use session start or track group start? Session start is ok.
-                            cardsCount={sessionGroups?.[activeGroupIndex]?.items.length || 0}
+                            type="learn"
+                            title={`第 ${activeGroupIndex + 1} 组学习完成`}
+                            startTime={sessionStats.startTime}
+                            // [FIX] Show Group Level Progress (Overall Learned / Total in Group)
+                            cardsCount={(() => {
+                                const group = sessionGroups?.[activeGroupIndex];
+                                if (!group) return 0;
+                                const learnedInGroup = group.items.filter(item =>
+                                    item.state !== 0 || item.isFamiliar || completedNodeIds.has(item.id)
+                                ).length;
+                                return learnedInGroup; // Or pass both? Let's use total for cardsCount and show accuracy as progress
+                            })()}
+                            totalCount={sessionGroups?.[activeGroupIndex]?.items.length || 0}
                             onClose={handleAdvanceGroup}
                             onExit={onBack}
                         />
@@ -3425,8 +3435,9 @@ export default function GuidedLearningSession({ onBack, apiKey, cards, onRate, s
                         <SessionReport
                             isOpen={showReport}
                             type="learn"
+                            title="本次学习已全部完成"
                             startTime={sessionStats.startTime}
-                            cardsCount={sessionStats.total} // Total for session
+                            cardsCount={sessionStats.correct} // Correct count for the entire session
                             onClose={onBack}
                         />
                     </div>

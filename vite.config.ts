@@ -6,6 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 使用相对路径以支持 Electron 加载本地文件
+  base: './',
   plugins: [
     react(),
     VitePWA({

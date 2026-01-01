@@ -773,21 +773,30 @@ export class EmbeddingService {
             if (cached) {
                 console.log('[Cache Check] Using cached clusters for deck:', deckId);
 
-                // [OPTIMIZATION] Hydrate lightweight cache if needed
-                // If items are strings (word IDs), map them back to full card objects
-                const firstCluster = cached.clusters[0];
-                if (firstCluster && firstCluster.items.length > 0 && typeof firstCluster.items[0] === 'string') {
-                    console.log('Hydrating lightweight clusters...');
-                    const allCards = cards || await getAllCards(deckId);
-                    const cardMap = new Map(allCards.map((c: any) => [c.word, c]));
+                // [CRITICAL FIX] ALWAYS hydrate clusters with fresh card data.
+                // The cache might store stale card object snapshots. We must map them back to current cards.
+                const allCards = cards || await getAllCards(deckId);
 
-                    return cached.clusters.map((c: any) => ({
-                        ...c,
-                        items: c.items.map((w: string) => cardMap.get(w)).filter(Boolean)
-                    }));
-                }
+                // Build a word-to-card map from current fresh cards
+                // If duplicates exist, pick the most progressed one
+                const cardMap = new Map();
+                allCards.forEach((c: any) => {
+                    const existing = cardMap.get(c.word);
+                    if (!existing || (c.state !== 0 || c.isFamiliar)) {
+                        if (!existing || (existing.state === 0 && !existing.isFamiliar)) {
+                            cardMap.set(c.word, c);
+                        }
+                    }
+                });
 
-                return cached.clusters;
+                return cached.clusters.map((c: any) => ({
+                    ...c,
+                    // Map word string OR stale object.word back to our fresh cardMap
+                    items: c.items.map((item: any) => {
+                        const word = typeof item === 'string' ? item : item.word;
+                        return cardMap.get(word);
+                    }).filter(Boolean)
+                }));
             }
         }
 
@@ -854,7 +863,19 @@ export class EmbeddingService {
     public async clusterCards(cards: any[]): Promise<Array<{ label: string; items: any[] }>> {
         const db = await getDB();
         const validWords = new Set(cards.map(c => c.word.toLowerCase()));
-        const wordToCardMap = new Map(cards.map(c => [c.word.toLowerCase(), c]));
+
+        // [FIX] Handle duplicates in clustering: Prefer learned cards
+        const wordToCardMap = new Map();
+        cards.forEach(c => {
+            const lower = c.word.toLowerCase();
+            const existing = wordToCardMap.get(lower);
+            // State: 0 is New. Prefer any state > 0 or isFamiliar=true
+            if (!existing || (c.state !== 0 || c.isFamiliar)) {
+                if (!existing || (existing.state === 0 && !existing.isFamiliar)) {
+                    wordToCardMap.set(lower, c);
+                }
+            }
+        });
 
         // 1. 获取所有单词的向量 (用于 K-Means) - Optimized: Only fetch for current cards
         const wordEmbeddings = new Map<string, number[]>();
