@@ -26,3 +26,7 @@ test-results/
 *.njsproj
 *.sln
 *.sw?
+
+# Electron Build Artifacts
+release/
+electron/
